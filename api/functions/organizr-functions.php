@@ -1,4 +1,17 @@
 <?php
+function checkPlexAdminFilled()
+{
+	if ($GLOBALS['plexAdmin'] == '') {
+		return false;
+	} else {
+		if ((strpos($GLOBALS['plexAdmin'], '@') !== false)) {
+			return 'email';
+		} else {
+			return 'username';
+		}
+	}
+}
+
 function organizrSpecialSettings()
 {
 	$refreshSearch = "Refresh";
@@ -22,9 +35,15 @@ function organizrSpecialSettings()
 				'sso' => ($GLOBALS['ssoOmbi']) ? true : false,
 				'cookie' => (isset($_COOKIE['Auth'])) ? true : false,
 				'alias' => ($GLOBALS['ombiAlias']) ? true : false,
+				'ombiDefaultFilterAvailable' => $GLOBALS['ombiDefaultFilterAvailable'] ? true : false,
+				'ombiDefaultFilterUnavailable' => $GLOBALS['ombiDefaultFilterUnavailable'] ? true : false,
+				'ombiDefaultFilterApproved' => $GLOBALS['ombiDefaultFilterApproved'] ? true : false,
+				'ombiDefaultFilterUnapproved' => $GLOBALS['ombiDefaultFilterUnapproved'] ? true : false,
+				'ombiDefaultFilterDenied' => $GLOBALS['ombiDefaultFilterDenied'] ? true : false
 			),
 			'options' => array(
 				'alternateHomepageHeaders' => $GLOBALS['alternateHomepageHeaders'],
+				'healthChecksTags' => $GLOBALS['healthChecksTags'],
 			)
 		),
 		'sso' => array(
@@ -38,6 +57,8 @@ function organizrSpecialSettings()
 				'cookie' => isset($_COOKIE['mpt']) ? true : false,
 				'machineID' => (strlen($GLOBALS['plexID']) == 40) ? true : false,
 				'token' => ($GLOBALS['plexToken'] !== '') ? true : false,
+				'plexAdmin' => checkPlexAdminFilled(),
+				'strict' => ($GLOBALS['plexStrictFriends']) ? true : false,
 				'oAuthEnabled' => ($GLOBALS['plexoAuth']) ? true : false,
 				'backend' => ($GLOBALS['authBackend'] == 'plex') ? true : false,
 			),
@@ -98,7 +119,9 @@ function organizrSpecialSettings()
 			'docker' => qualifyRequest(1) ? $GLOBALS['docker'] : '',
 			'githubCommit' => qualifyRequest(1) ? $GLOBALS['commit'] : '',
 			'schema' => qualifyRequest(1) ? getSchema() : '',
-			'debugArea' => qualifyRequest($GLOBALS['debugAreaAuth'])
+			'debugArea' => qualifyRequest($GLOBALS['debugAreaAuth']),
+			'debugErrors' => $GLOBALS['debugErrors'],
+			'sandbox' => $GLOBALS['sandbox'],
 		)
 	);
 }
@@ -425,7 +448,7 @@ function organizrStatus()
 	$status = array();
 	$dependenciesActive = array();
 	$dependenciesInactive = array();
-	$extensions = array("PDO_SQLITE", "PDO", "SQLITE3", "zip", "cURL", "openssl", "simplexml", "json", "session");
+	$extensions = array("PDO_SQLITE", "PDO", "SQLITE3", "zip", "cURL", "openssl", "simplexml", "json", "session", "filter");
 	$functions = array("hash", "fopen", "fsockopen", "fwrite", "fclose", "readfile");
 	foreach ($extensions as $check) {
 		if (extension_loaded($check)) {
@@ -488,7 +511,7 @@ function getSettingsMain()
 				'icon' => 'fa fa-download',
 				'text' => 'Retrieve',
 				'attr' => ($GLOBALS['docker']) ? 'title="You can just restart your docker to update"' : '',
-				'help' => ($GLOBALS['docker']) ? 'Since you are using the Official Docker image, You can just restart your docker to update' : 'This will re-download all of the source files for Organizr'
+				'help' => ($GLOBALS['docker']) ? 'Since you are using the official Docker image, you can just restart your Docker container to update Organizr' : 'This will re-download all of the source files for Organizr'
 			)
 		),
 		'API' => array(
@@ -582,6 +605,13 @@ function getSettingsMain()
 				'help' => 'Enabling this will only allow Friends that have shares to the Machine ID entered above to login, Having this disabled will allow all Friends on your Friends list to login'
 			),
 			array(
+				'type' => 'switch',
+				'name' => 'ignoreTFALocal',
+				'label' => 'Ignore External 2FA on Local Subnet',
+				'value' => $GLOBALS['ignoreTFALocal'],
+				'help' => 'Enabling this will bypass external 2FA security if user is on local Subnet'
+			),
+			array(
 				'type' => 'input',
 				'name' => 'authBackendHost',
 				'class' => 'ldapAuth ftpAuth switchAuth',
@@ -656,6 +686,15 @@ function getSettingsMain()
 				'help' => 'Remember! Please save before using the test button!'
 			),
 			array(
+				'type' => 'button',
+				'name' => 'test-button-ldap-login',
+				'label' => 'Test Login',
+				'icon' => 'fa fa-flask',
+				'class' => 'ldapAuth switchAuth',
+				'text' => 'Test Login',
+				'attr' => 'onclick="showLDAPLoginTest()"'
+			),
+			array(
 				'type' => 'input',
 				'name' => 'embyURL',
 				'class' => 'embyAuth switchAuth',
@@ -681,6 +720,20 @@ function getSettingsMain()
 			)*/
 		),
 		'Security' => array(
+			array(
+				'type' => 'number',
+				'name' => 'loginAttempts',
+				'label' => 'Max Login Attempts',
+				'value' => $GLOBALS['loginAttempts'],
+				'placeholder' => ''
+			),
+			array(
+				'type' => 'select',
+				'name' => 'loginLockout',
+				'label' => 'Login Lockout Seconds',
+				'value' => $GLOBALS['loginLockout'],
+				'options' => optionTime()
+			),
 			array(
 				'type' => 'number',
 				'name' => 'lockoutTimeout',
@@ -722,6 +775,48 @@ function getSettingsMain()
 				'help' => 'Important! Do not keep this enabled for too long as this opens up Authentication while testing.',
 				'value' => $GLOBALS['authDebug'],
 				'class' => 'authDebug'
+			),
+			array(
+				'type' => 'select2',
+				'class' => 'select2-multiple',
+				'id' => 'sandbox-select',
+				'name' => 'sandbox',
+				'label' => 'iFrame Sandbox',
+				'value' => $GLOBALS['sandbox'],
+				'help' => 'WARNING! This can potentially mess up your iFrames',
+				'options' => array(
+					array(
+						'name' => 'Allow Presentation',
+						'value' => 'allow-presentation'
+					),
+					array(
+						'name' => 'Allow Forms',
+						'value' => 'allow-forms'
+					),
+					array(
+						'name' => 'Allow Same Origin',
+						'value' => 'allow-same-origin'
+					),
+					array(
+						'name' => 'Allow Pointer Lock',
+						'value' => 'allow-pointer-lock'
+					),
+					array(
+						'name' => 'Allow Scripts',
+						'value' => 'allow-scripts'
+					), array(
+						'name' => 'Allow Popups',
+						'value' => 'allow-popups'
+					),
+					array(
+						'name' => 'Allow Modals',
+						'value' => 'allow-modals'
+					),
+					array(
+						'name' => 'Allow Top Navigation',
+						'value' => 'allow-top-navigation'
+					),
+				)
 			)
 		),
 		'Login' => array(
@@ -754,6 +849,47 @@ function getSettingsMain()
 				'label' => 'Remember Me',
 				'help' => 'Default status of Remember Me button on login screen',
 				'value' => $GLOBALS['rememberMe'],
+			),
+			array(
+				'type' => 'input',
+				'name' => 'localIPFrom',
+				'label' => 'Override Local IP From',
+				'value' => $GLOBALS['localIPFrom'],
+				'placeholder' => 'i.e. 123.123.123.123',
+				'help' => 'IPv4 only at the moment - This will set your login as local if your IP falls within the From and To'
+			),
+			array(
+				'type' => 'input',
+				'name' => 'localIPTo',
+				'label' => 'Override Local IP To',
+				'value' => $GLOBALS['localIPTo'],
+				'placeholder' => 'i.e. 123.123.123.123',
+				'help' => 'IPv4 only at the moment - This will set your login as local if your IP falls within the From and To'
+			),
+		),
+		'Auth Proxy' => array(
+			array(
+				'type' => 'switch',
+				'name' => 'authProxyEnabled',
+				'label' => 'Auth Proxy',
+				'help' => 'Enable option to set Auth Poxy Header Login',
+				'value' => $GLOBALS['authProxyEnabled'],
+			),
+			array(
+				'type' => 'input',
+				'name' => 'authProxyHeaderName',
+				'label' => 'Auth Proxy Header Name',
+				'value' => $GLOBALS['authProxyHeaderName'],
+				'placeholder' => 'i.e. X-Forwarded-User',
+				'help' => 'Please choose a unique value for added security'
+			),
+			array(
+				'type' => 'input',
+				'name' => 'authProxyWhitelist',
+				'label' => 'Auth Proxy Whitelist',
+				'value' => $GLOBALS['authProxyWhitelist'],
+				'placeholder' => 'i.e. 10.0.0.0/24 or 10.0.0.20',
+				'help' => 'IPv4 only at the moment - This must be set to work, will accept subnet or IP address'
 			),
 		),
 		'Ping' => array(
@@ -964,6 +1100,7 @@ function loadAppearance()
 	$appearance['buttonTextHoverColor'] = $GLOBALS['buttonTextHoverColor'];
 	$appearance['buttonHoverColor'] = $GLOBALS['buttonHoverColor'];
 	$appearance['loginWallpaper'] = $GLOBALS['loginWallpaper'];
+	$appearance['loginLogo'] = $GLOBALS['loginLogo'];
 	$appearance['customCss'] = $GLOBALS['customCss'];
 	$appearance['customThemeCss'] = $GLOBALS['customThemeCss'];
 	$appearance['customJava'] = $GLOBALS['customJava'];
@@ -992,15 +1129,30 @@ function getCustomizeAppearance()
 					'type' => 'switch',
 					'name' => 'useLogo',
 					'label' => 'Use Logo instead of Title',
-					'value' => $GLOBALS['useLogo']
-				)
+					'value' => $GLOBALS['useLogo'],
+					'help' => 'Also sets the title of your site'
+				),
+				array(
+					'type' => 'input',
+					'name' => 'description',
+					'label' => 'Meta Description',
+					'value' => $GLOBALS['description'],
+					'help' => 'Used to set the description for SEO meta tags'
+				),
 			),
 			'Login Page' => array(
 				array(
 					'type' => 'input',
+					'name' => 'loginLogo',
+					'label' => 'Login Logo',
+					'value' => $GLOBALS['loginLogo'],
+				),
+				array(
+					'type' => 'input',
 					'name' => 'loginWallpaper',
 					'label' => 'Login Wallpaper',
-					'value' => $GLOBALS['loginWallpaper']
+					'value' => $GLOBALS['loginWallpaper'],
+					'help' => 'You may enter multiple URL\'s using the CSV format.  i.e. link#1,link#2,link#3'
 				),
 				array(
 					'type' => 'switch',
@@ -1017,6 +1169,12 @@ function getCustomizeAppearance()
 					'value' => $GLOBALS['alternateHomepageHeaders']
 				),
 				array(
+					'type' => 'switch',
+					'name' => 'debugErrors',
+					'label' => 'Show Debug Errors',
+					'value' => $GLOBALS['debugErrors']
+				),
+				array(
 					'type' => 'select',
 					'name' => 'unsortedTabs',
 					'label' => 'Unsorted Tab Placement',
@@ -1031,6 +1189,13 @@ function getCustomizeAppearance()
 							'value' => 'bottom'
 						)
 					)
+				),
+				array(
+					'type' => 'input',
+					'name' => 'gaTrackingID',
+					'label' => 'Google Analytics Tracking ID',
+					'placeholder' => 'e.g. UA-XXXXXXXXX-X',
+					'value' => $GLOBALS['gaTrackingID']
 				)
 			),
 			'Colors & Themes' => array(
@@ -1463,6 +1628,7 @@ function auth()
 	}
 	if ($group !== null) {
 		if (qualifyRequest($group) && $unlocked) {
+			header("X-Organizr-User: $currentUser");
 			!$debug ? exit(http_response_code(200)) : die("$userInfo Authorized");
 		} else {
 			!$debug ? exit(http_response_code(401)) : die("$userInfo Not Authorized");
@@ -1477,7 +1643,7 @@ function logoOrText()
 	if ($GLOBALS['useLogo'] == false) {
 		return '<h1>' . $GLOBALS['title'] . '</h1>';
 	} else {
-		return '<img class="loginLogo" src="' . $GLOBALS['logo'] . '" alt="Home" />';
+		return '<img class="loginLogo" src="' . $GLOBALS['loginLogo'] . '" alt="Home" />';
 	}
 }
 
@@ -1491,6 +1657,11 @@ function showLogin()
 function checkoAuth()
 {
 	return ($GLOBALS['plexoAuth'] && $GLOBALS['authType'] !== 'internal') ? true : false;
+}
+
+function checkoAuthOnly()
+{
+	return ($GLOBALS['plexoAuth'] && $GLOBALS['authType'] == 'external') ? true : false;
 }
 
 function showoAuth()
@@ -1581,6 +1752,7 @@ function approvedFileExtension($filename)
 		case 'png':
 		case 'jpeg':
 		case 'jpg':
+		case 'svg':
 			return true;
 			break;
 		default:
@@ -1813,12 +1985,91 @@ function downloader($array)
 					break;
 			}
 			break;
+        case 'jdownloader':
+            switch ($array['data']['action']) {
+                case 'start':
+                    jdownloaderAction($array['data']['action'], $array['data']['target']);
+                    break;
+                case 'stop':
+                    jdownloaderAction($array['data']['action'], $array['data']['target']);
+                    break;
+                case 'resume':
+                    jdownloaderAction($array['data']['action'], $array['data']['target']);
+                    break;
+                case 'pause':
+                    jdownloaderAction($array['data']['action'], $array['data']['target']);
+                    break;
+                case 'update':
+                    jdownloaderAction($array['data']['action'], $array['data']['target']);
+                    break;
+                case 'retry':
+                    jdownloaderAction($array['data']['action'], $array['data']['target']);
+                    break;
+                case 'remove':
+                    jdownloaderAction($array['data']['action'], $array['data']['target']);
+                    break;
+                default:
+                    # code...
+                    break;
+            }
+            break;
 		case 'nzbget':
 			break;
 		default:
 			# code...
 			break;
 	}
+}
+
+function jdownloaderAction($action = null, $target = null)
+{
+    if ($GLOBALS['homepageJdownloaderEnabled'] && !empty($GLOBALS['jdownloaderURL']) && qualifyRequest($GLOBALS['homepageJdownloaderAuth'])) {
+        $url = qualifyURL($GLOBALS['jdownloaderURL']);
+
+        # This ensures compatibility with RSScrawler
+        $url = str_replace('/myjd', '', $url);
+        if(substr($url , -1)=='/') {
+            $url = substr_replace($url ,"",-1);
+        }
+
+        switch ($action) {
+            case 'start':
+                $url = $url . '/myjd_start/';
+                break;
+            case 'stop':
+                $url = $url . '/myjd_stop/';
+                break;
+            case 'resume':
+                $url = $url . '/myjd_pause/false';
+                break;
+            case 'pause':
+                $url = $url . '/myjd_pause/true';
+                break;
+            case 'update':
+                $url = $url . '/myjd_update';
+                break;
+            case 'retry':
+                # code...
+                break;
+            case 'remove':
+                # code...
+                break;
+            default:
+                # code...
+                break;
+        }
+        try {
+            $options = (localURL($url)) ? array('verify' => false) : array();
+            $response = Requests::post($url, array(), $options);
+            if ($response->success) {
+                $api['content'] = json_decode($response->body, true);
+            }
+        } catch (Requests_Exception $e) {
+            writeLog('error', 'JDownloader Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
+        };
+        $api['content'] = isset($api['content']) ? $api['content'] : false;
+        return $api;
+    }
 }
 
 function sabnzbdAction($action = null, $target = null)
@@ -1995,6 +2246,11 @@ function plexJoinAPI($array)
 	return plexJoin($array['data']['username'], $array['data']['email'], $array['data']['password']);
 }
 
+function embyJoinAPI($array)
+{
+	return embyJoin($array['data']['username'], $array['data']['email'], $array['data']['password']);
+}
+
 function plexJoin($username, $email, $password)
 {
 	try {
@@ -2038,6 +2294,86 @@ function plexJoin($username, $email, $password)
 	return false;
 }
 
+function embyJoin($username, $email, $password)
+{
+	try {
+		#create user in emby.
+		$headers = array(
+			"Accept" => "application/json"
+		);
+		$data = array();
+		$url = $GLOBALS['embyURL'] . '/emby/Users/New?name=' . $username . '&api_key=' . $GLOBALS['embyToken'];
+		$response = Requests::Post($url, $headers, json_encode($data), array());
+		$response = $response->body;
+		//return($response);
+		$response = json_decode($response, true);
+		//return($response);
+		$userID = $response["Id"];
+		//return($userID);
+		#authenticate as user to update password.
+		//randomizer four digits of DeviceId
+		// I dont think ther would be security problems with hardcoding deviceID but randomizing it would mitigate any issue.
+		$deviceIdSeceret = rand(0, 9) . "" . rand(0, 9) . "" . rand(0, 9) . "" . rand(0, 9);
+		//hardcoded device id with the first three digits random 0-9,0-9,0-9,0-9
+		$embyAuthHeader = 'MediaBrowser Client="Emby Mobile", Device="Firefox", DeviceId="' . $deviceIdSeceret . 'aWxssS81LgAggFdpbmRvd3MgTlQgMTAuMDsgV2luNjxx7IHf2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lLzcyLjAuMzYyNi4xMTkgU2FmYXJpLzUzNy4zNnwxNTUxNTczMTAyNDI4", Version="4.0.2.0"';
+		$headers = array(
+			"Accept" => "application/json",
+			"Content-Type" => "application/json",
+			"X-Emby-Authorization" => $embyAuthHeader
+		);
+		$data = array(
+			"Pw" => "",
+			"Username" => $username
+		);
+		$url = $GLOBALS['embyURL'] . '/emby/Users/AuthenticateByName';
+		$response = Requests::Post($url, $headers, json_encode($data), array());
+		$response = $response->body;
+		$response = json_decode($response, true);
+		$userToken = $response["AccessToken"];
+		#update password
+		$embyAuthHeader = 'MediaBrowser Client="Emby Mobile", Device="Firefox", Token="' . $userToken . '", DeviceId="' . $deviceIdSeceret . 'aWxssS81LgAggFdpbmRvd3MgTlQgMTAuMDsgV2luNjxx7IHf2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lLzcyLjAuMzYyNi4xMTkgU2FmYXJpLzUzNy4zNnwxNTUxNTczMTAyNDI4", Version="4.0.2.0"';
+		$headers = array(
+			"Accept" => "application/json",
+			"Content-Type" => "application/json",
+			"X-Emby-Authorization" => $embyAuthHeader
+		);
+		$data = array(
+			"CurrentPw" => "",
+			"NewPw" => $password,
+			"Id" => $userID
+		);
+		$url = $GLOBALS['embyURL'] . '/emby/Users/' . $userID . '/Password';
+		Requests::Post($url, $headers, json_encode($data), array());
+		#update config
+		$headers = array(
+			"Accept" => "application/json",
+			"Content-Type" => "application/json"
+		);
+		$url = $GLOBALS['embyURL'] . '/emby/Users/' . $userID . '/Policy?api_key=' . $GLOBALS['embyToken'];
+		$response = Requests::Post($url, $headers, getEmbyTemplateUserJson(), array());
+		#add emby.media
+		try {
+			#seperate because this is not required
+			$headers = array(
+				"Accept" => "application/json",
+				"X-Emby-Authorization" => $embyAuthHeader
+			);
+			$data = array(
+				"ConnectUsername " => $email
+			);
+			$url = $GLOBALS['embyURL'] . '/emby/Users/' . $userID . '/Connect/Link';
+			Requests::Post($url, $headers, json_encode($data), array());
+		} catch (Requests_Exception $e) {
+			writeLog('error', 'Emby Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
+		}
+		return (true);
+		//return( "USERID:".$userID);
+	} catch (Requests_Exception $e) {
+		writeLog('error', 'Emby create Function - Error: ' . $e->getMessage(), 'SYSTEM');
+	};
+	return false;
+}
+
 function checkFrame($array, $url)
 {
 	if (array_key_exists("x-frame-options", $array)) {
@@ -2058,6 +2394,42 @@ function checkFrame($array, $url)
 		}
 		return true;
 	}
+}
+
+/*loads users from emby and returns a correctly formated policy for a new user.
+*/
+function getEmbyTemplateUserJson()
+{
+	$headers = array(
+		"Accept" => "application/json"
+	);
+	$data = array();
+	$url = $GLOBALS['embyURL'] . '/emby/Users?api_key=' . $GLOBALS['embyToken'];
+	$response = Requests::Get($url, $headers, array());
+	$response = $response->body;
+	$response = json_decode($response, true);
+	//error_Log("response ".json_encode($response));
+	writeLog('error', 'userList:' . json_encode($response), 'SYSTEM');
+	//$correct stores the template users object
+	$correct = null;
+	foreach ($response as $element) {
+		if ($element['Name'] == $GLOBALS['INVITES-EmbyTemplate']) {
+			$correct = $element;
+		}
+	}
+	writeLog('error', 'Correct user:' . json_encode($correct), 'SYSTEM');
+	if ($correct == null) {
+		//return empty JSON if user incorectly configured template
+		return "{}";
+	}
+	//select policy section and remove possibly dangeours rows.
+	$policy = $correct['Policy'];
+	//writeLog('error', 'policy update'.$policy, 'SYSTEM');
+	unset($policy['AuthenticationProviderId']);
+	unset($policy['InvalidLoginAttemptCount']);
+	unset($policy['DisablePremiumFeatures']);
+	unset($policy['DisablePremiumFeatures']);
+	return (json_encode($policy));
 }
 
 function frameTest($url)
@@ -2185,4 +2557,30 @@ function checkHostPrefix($s)
 		return $s;
 	}
 	return (substr($s, -1, 1) == '\\') ? $s : $s . '\\';
+}
+function analyzeIP($ip)
+{
+	if(strpos($ip,'/') !== false){
+		$explodeIP = explode('/', $ip);
+		$prefix = $explodeIP[1];
+		$start_ip = $explodeIP[0];
+		$ip_count = 1 << (32 - $prefix);
+		$start_ip_long = ip2long($start_ip);
+		$last_ip_long = ip2long($start_ip) + $ip_count - 1;
+	}elseif(substr_count($ip, '.') == 3){
+		$start_ip_long = ip2long($ip);
+		$last_ip_long = ip2long($ip);
+	}
+	return (isset($start_ip_long) && isset($last_ip_long)) ? array('from' => $start_ip_long, 'to' => $last_ip_long) : false;
+}
+function authProxyRangeCheck($from, $to)
+{
+	$approved = false;
+	$userIP = ip2long($_SERVER['REMOTE_ADDR']);
+	$low = $from;
+	$high = $to;
+	if ($userIP <= $high && $low <= $userIP) {
+		$approved = true;
+	}
+	return $approved;
 }

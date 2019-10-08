@@ -19,13 +19,16 @@ function homepageConnect($array)
 			return (qualifyRequest($GLOBALS['homepagePlexPlaylistAuth'])) ? getPlexPlaylists() : false;
 			break;
 		case 'getEmbyStreams':
-			return (qualifyRequest($GLOBALS['homepageEmbyStreamsAuth'])) ? embyConnect('streams') : false;
+			return (qualifyRequest($GLOBALS['homepageEmbyStreamsAuth']) && $GLOBALS['homepageEmbyEnabled']) ? embyConnect('streams') : false;
 			break;
 		case 'getEmbyRecent':
-			return (qualifyRequest($GLOBALS['homepageEmbyRecentAuth'])) ? embyConnect('recent') : false;
+			return (qualifyRequest($GLOBALS['homepageEmbyRecentAuth']) && $GLOBALS['homepageEmbyEnabled']) ? embyConnect('recent') : false;
 			break;
 		case 'getEmbyMetadata':
-			return (qualifyRequest($GLOBALS['homepageEmbyAuth'])) ? embyConnect('metadata', $array['data']['key'], true) : false;
+			return (qualifyRequest($GLOBALS['homepageEmbyAuth']) && $GLOBALS['homepageEmbyEnabled']) ? embyConnect('metadata', $array['data']['key'], true) : false;
+			break;
+		case 'getJdownloader':
+			return jdownloaderConnect();
 			break;
 		case 'getSabnzbd':
 			return sabnzbdConnect();
@@ -51,9 +54,61 @@ function homepageConnect($array)
 		case 'getRequests':
 			return getOmbiRequests($GLOBALS['ombiLimit']);
 			break;
+		case 'getHealthChecks':
+			return (qualifyRequest($GLOBALS['homepageHealthChecksAuth'])) ? getHealthChecks($array['data']['tags']) : false;
+			break;
+		case 'getUnifi':
+			return unifiConnect();
+			break;
 		default:
 			# code...
 			break;
+	}
+	return false;
+}
+
+function healthChecksTags($tags)
+{
+	$return = '?tag=';
+	if (!$tags) {
+		return '';
+	} elseif ($tags == '*') {
+		return '';
+	} else {
+		if (strpos($tags, ',') !== false) {
+			$list = explode(',', $tags);
+			return $return . implode("&tag=", $list);
+		} else {
+			return $return . $tags;
+		}
+	}
+}
+
+function getHealthChecks($tags = null)
+{
+	if ($GLOBALS['homepageHealthChecksEnabled'] && !empty($GLOBALS['healthChecksToken']) && !empty($GLOBALS['healthChecksURL']) && qualifyRequest($GLOBALS['homepageHealthChecksAuth'])) {
+		$api['content']['checks'] = array();
+		$tags = ($tags) ? healthChecksTags($tags) : '';
+		$healthChecks = explode(',', $GLOBALS['healthChecksToken']);
+		foreach ($healthChecks as $token) {
+			$url = qualifyURL($GLOBALS['healthChecksURL']) . '/' . $tags;
+			try {
+				$headers = array('X-Api-Key' => $token);
+				$options = (localURL($url)) ? array('verify' => false) : array();
+				$response = Requests::get($url, $headers, $options);
+				if ($response->success) {
+					$healthResults = json_decode($response->body, true);
+					$api['content']['checks'] = array_merge($api['content']['checks'], $healthResults['checks']);
+				}
+			} catch (Requests_Exception $e) {
+				writeLog('error', 'HealthChecks Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
+			};
+		}
+		usort($api['content']['checks'], function ($a, $b) {
+			return $a['status'] <=> $b['status'];
+		});
+		$api['content']['checks'] = isset($api['content']['checks']) ? $api['content']['checks'] : false;
+		return $api;
 	}
 	return false;
 }
@@ -216,14 +271,14 @@ function resolveEmbyItem($itemDetails)
 		'audioChannels' => @$itemDetails['TranscodingInfo']['AudioChannels']
 	);
 	// Genre catch all
-	if ($item['Genres']) {
+	if (isset($item['Genres'])) {
 		$genres = array();
 		foreach ($item['Genres'] as $genre) {
 			$genres[] = $genre;
 		}
 	}
 	// Actor catch all
-	if ($item['People']) {
+	if (isset($item['People'])) {
 		$actors = array();
 		foreach ($item['People'] as $key => $value) {
 			if (@$value['PrimaryImageTag'] && @$value['Role']) {
@@ -251,8 +306,8 @@ function resolveEmbyItem($itemDetails)
 		'year' => (string)isset($item['ProductionYear']) ? $item['ProductionYear'] : '',
 		//'studio' => (string)$item['studio'],
 		'tagline' => @(string)$item['Taglines'][0],
-		'genres' => ($item['Genres']) ? $genres : '',
-		'actors' => ($item['People']) ? $actors : ''
+		'genres' => (isset($item['Genres'])) ? $genres : '',
+		'actors' => (isset($item['People'])) ? $actors : ''
 	);
 	if (file_exists($cacheDirectory . $embyItem['nowPlayingKey'] . '.jpg')) {
 		$embyItem['nowPlayingImageURL'] = $cacheDirectoryWeb . $embyItem['nowPlayingKey'] . '.jpg';
@@ -470,7 +525,7 @@ function resolvePlexItem($item)
 		$plexItem['nowPlayingOriginalImage'] = $plexItem['nowPlayingImageURL'] = "plugins/images/cache/no-np.png";
 		$plexItem['nowPlayingKey'] = "no-np";
 	}
-	if (!$plexItem['thumb']) {
+	if (!$plexItem['thumb'] || $plexItem['addedAt'] >= (time() - 300)) {
 		$plexItem['originalImage'] = $plexItem['imageURL'] = "plugins/images/cache/no-list.png";
 		$plexItem['key'] = "no-list";
 	}
@@ -496,11 +551,11 @@ function plexConnect($action, $key = null)
 				$resolve = false;
 				break;
 			case 'recent':
-				//$url = $url . "/library/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&limit=" . $GLOBALS['homepageRecentLimit'];
-				$urls['movie'] = $url . "/hubs/home/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&X-Plex-Container-Start=0&X-Plex-Container-Size=" . $GLOBALS['homepageRecentLimit'] . "&type=1";
-				$urls['tv'] = $url . "/hubs/home/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&X-Plex-Container-Start=0&X-Plex-Container-Size=" . $GLOBALS['homepageRecentLimit'] . "&type=2";
-				$urls['music'] = $url . "/hubs/home/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&X-Plex-Container-Start=0&X-Plex-Container-Size=" . $GLOBALS['homepageRecentLimit'] . "&type=8";
-				$multipleURL = true;
+					//$url = $url . "/library/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&limit=" . $GLOBALS['homepageRecentLimit'];
+					$urls['movie'] = $url . "/hubs/home/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&X-Plex-Container-Start=0&X-Plex-Container-Size=" . $GLOBALS['homepageRecentLimit'] . "&type=1";
+					$urls['tv'] = $url . "/hubs/home/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&X-Plex-Container-Start=0&X-Plex-Container-Size=" . $GLOBALS['homepageRecentLimit'] . "&type=2";
+					$urls['music'] = $url . "/hubs/home/recentlyAdded?X-Plex-Token=" . $GLOBALS['plexToken'] . "&X-Plex-Container-Start=0&X-Plex-Container-Size=" . $GLOBALS['homepageRecentLimit'] . "&type=8";
+					$multipleURL = true;
 				break;
 			case 'metadata':
 				$url = $url . "/library/metadata/" . $key . "?X-Plex-Token=" . $GLOBALS['plexToken'];
@@ -681,6 +736,49 @@ function embyConnect($action, $key = null, $skip = false)
 		};
 	}
 	return false;
+}
+
+function jdownloaderConnect()
+{
+    if ($GLOBALS['homepageJdownloaderEnabled'] && !empty($GLOBALS['jdownloaderURL']) && qualifyRequest($GLOBALS['homepageJdownloaderAuth'])) {
+        $url = qualifyURL($GLOBALS['jdownloaderURL']);
+
+        try {
+            $options = (localURL($url)) ? array('verify' => false) : array();
+            $response = Requests::get($url, array(), $options);
+            if ($response->success) {
+                $temp = json_decode($response->body, true);
+                $packages = $temp['packages'];
+                if ($packages['downloader']) {
+                    $api['content']['queueItems'] = $packages['downloader'];
+                }else{
+                    $api['content']['queueItems'] = [];
+                }
+                if ($packages['linkgrabber_decrypted']) {
+                    $api['content']['grabberItems'] = $packages['linkgrabber_decrypted'];
+                }else{
+                    $api['content']['grabberItems'] = [];
+                }
+                if ($packages['linkgrabber_failed']) {
+                    $api['content']['encryptedItems'] = $packages['linkgrabber_failed'];
+                }else{
+                    $api['content']['encryptedItems'] = [];
+                }
+                if ($packages['linkgrabber_offline']) {
+                    $api['content']['offlineItems'] = $packages['linkgrabber_offline'];
+                }else{
+                    $api['content']['offlineItems'] = [];
+                }
+
+                $api['content']['$status'] = array($temp['downloader_state'], $temp['grabber_collecting'], $temp['update_ready']);
+            }
+        } catch (Requests_Exception $e) {
+            writeLog('error', 'JDownloader Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
+        };
+        $api['content'] = isset($api['content']) ? $api['content'] : false;
+        return $api;
+    }
+    return false;
 }
 
 function sabnzbdConnect()
@@ -1043,7 +1141,11 @@ function getCalendar()
 					$sonarr = new Kryptonit3\Sonarr\Sonarr($value['url'], $value['token']);
 					$sonarr = $sonarr->getCalendar($startDate, $endDate, $GLOBALS['sonarrUnmonitored']);
 					$result = json_decode($sonarr, true);
-					$sonarrCalendar = (array_key_exists('error', $result)) ? '' : getSonarrCalendar($sonarr, $key);;
+					if (is_array($result) || is_object($result)) {
+						$sonarrCalendar = (array_key_exists('error', $result)) ? '' : getSonarrCalendar($sonarr, $key);
+					} else {
+						$sonarrCalendar = '';
+					}
 				} catch (Exception $e) {
 					writeLog('error', 'Sonarr Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
 				}
@@ -1070,7 +1172,11 @@ function getCalendar()
 					$lidarr = new Kryptonit3\Sonarr\Sonarr($value['url'], $value['token'], true);
 					$lidarr = $lidarr->getCalendar($startDate, $endDate);
 					$result = json_decode($lidarr, true);
-					$lidarrCalendar = (array_key_exists('error', $result)) ? '' : getLidarrCalendar($lidarr, $key);;
+					if (is_array($result) || is_object($result)) {
+						$lidarrCalendar = (array_key_exists('error', $result)) ? '' : getLidarrCalendar($lidarr, $key);
+					} else {
+						$lidarrCalendar = '';
+					}
 				} catch (Exception $e) {
 					writeLog('error', 'Lidarr Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
 				}
@@ -1097,7 +1203,11 @@ function getCalendar()
 					$radarr = new Kryptonit3\Sonarr\Sonarr($value['url'], $value['token']);
 					$radarr = $radarr->getCalendar($startDate, $endDate);
 					$result = json_decode($radarr, true);
-					$radarrCalendar = (array_key_exists('error', $result)) ? '' : getRadarrCalendar($radarr, $key, $value['url']);
+					if (is_array($result) || is_object($result)) {
+						$radarrCalendar = (array_key_exists('error', $result)) ? '' : getRadarrCalendar($radarr, $key, $value['url']);
+					} else {
+						$radarrCalendar = '';
+					}
 				} catch (Exception $e) {
 					writeLog('error', 'Radarr Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
 				}
@@ -1170,35 +1280,123 @@ function getCalendar()
 			$icsEvents = getIcsEventsAsArray($value);
 			if (isset($icsEvents) && !empty($icsEvents)) {
 				$timeZone = isset($icsEvents [1] ['X-WR-TIMEZONE']) ? trim($icsEvents[1]['X-WR-TIMEZONE']) : date_default_timezone_get();
+				$originalTimeZone = isset($icsEvents [1] ['X-WR-TIMEZONE']) ? str_replace('"', '', trim($icsEvents[1]['X-WR-TIMEZONE'])) : false;
 				unset($icsEvents [1]);
 				foreach ($icsEvents as $icsEvent) {
-					if ((isset($icsEvent['DTSTART']) || isset($icsEvent['DTSTART;VALUE=DATE'])) && (isset($icsEvent['DTEND']) || isset($icsEvent['DTEND;VALUE=DATE'])) && isset($icsEvent['SUMMARY'])) {
+					$startKeys = array_filter_key($icsEvent, function ($key) {
+						return strpos($key, 'DTSTART') === 0;
+					});
+					$endKeys = array_filter_key($icsEvent, function ($key) {
+						return strpos($key, 'DTEND') === 0;
+					});
+					if (!empty($startKeys) && !empty($endKeys) && isset($icsEvent['SUMMARY'])) {
 						/* Getting start date and time */
-						$start = isset($icsEvent ['DTSTART;VALUE=DATE']) ? $icsEvent ['DTSTART;VALUE=DATE'] : $icsEvent ['DTSTART'];
-						/* Converting to datetime and apply the timezone to get proper date time */
-						$startDt = new DateTime ($start);
-						$startDt->setTimeZone(new DateTimezone ($timeZone));
-						$startDate = $startDt->format(DateTime::ATOM);
-						/* Getting end date with time */
-						$end = isset($icsEvent ['DTEND;VALUE=DATE']) ? $icsEvent ['DTEND;VALUE=DATE'] : $icsEvent ['DTEND'];
-						$endDt = new DateTime ($end);
-						$endDate = $endDt->format(DateTime::ATOM);
-						if (new DateTime() < $endDt) {
-							$extraClass = 'text-info';
-						} else {
-							$extraClass = 'text-success';
+						$repeat = isset($icsEvent ['RRULE']) ? $icsEvent ['RRULE'] : false;
+						if (!$originalTimeZone) {
+							$tzKey = array_keys($startKeys);
+							if (strpos($tzKey[0], 'TZID=') !== false) {
+								$originalTimeZone = explode('TZID=', (string)$tzKey[0]);
+								$originalTimeZone = (count($originalTimeZone) >= 2) ? str_replace('"', '', $originalTimeZone[1]) : false;
+							}
 						}
-						/* Getting the name of event */
-						$eventName = $icsEvent['SUMMARY'];
-						$icalEvents[] = array(
-							'title' => $eventName,
-							'imagetype' => 'calendar-o text-warning text-custom-calendar ' . $extraClass,
-							'imagetypeFilter' => 'ical',
-							'className' => 'bg-calendar calendar-item bg-custom-calendar',
-							'start' => $startDate,
-							'end' => $endDate,
-							'bgColor' => str_replace('text', 'bg', $extraClass),
-						);
+						$start = reset($startKeys);
+						$end = reset($endKeys);
+						$totalDays = $GLOBALS['calendarStart'] + $GLOBALS['calendarEnd'];
+						if ($repeat) {
+							$repeatOverride = getCalenderRepeatCount(trim($icsEvent["RRULE"]));
+							switch (trim(strtolower(getCalenderRepeat($repeat)))) {
+								case 'daily':
+									$repeat = ($repeatOverride) ? $repeatOverride : $totalDays;
+									$term = 'days';
+									break;
+								case 'weekly':
+									$repeat = ($repeatOverride) ? $repeatOverride : round($totalDays / 7);
+									$term = 'weeks';
+									break;
+								case 'monthly':
+									$repeat = ($repeatOverride) ? $repeatOverride : round($totalDays / 30);
+									$term = 'months';
+									break;
+								case 'yearly':
+									$repeat = ($repeatOverride) ? $repeatOverride : round($totalDays / 365);
+									$term = 'years';
+									break;
+								default:
+									$repeat = ($repeatOverride) ? $repeatOverride : $totalDays;
+									$term = 'days';
+									break;
+							}
+						} else {
+							$repeat = 1;
+							$term = 'day';
+						}
+						$calendarTimes = 0;
+						while ($calendarTimes < $repeat) {
+							$currentDate = new DateTime ($GLOBALS['currentTime']);
+							$oldestDay = new DateTime ($GLOBALS['currentTime']);
+							$oldestDay->modify('-' . $GLOBALS['calendarStart'] . ' days');
+							$newestDay = new DateTime ($GLOBALS['currentTime']);
+							$newestDay->modify('+' . $GLOBALS['calendarEnd'] . ' days');
+							/* Converting to datetime and apply the timezone to get proper date time */
+							$startDt = new DateTime ($start);
+							/* Getting end date with time */
+							$endDt = new DateTime ($end);
+							if ($calendarTimes !== 0) {
+								$dateDiff = date_diff($startDt, $currentDate);
+								$startDt->modify($dateDiff->format('%R') . (round(($dateDiff->days) / 7)) . ' weeks');
+								$startDt->modify('+' . $calendarTimes . ' ' . $term);
+								$endDt->modify($dateDiff->format('%R') . (round(($dateDiff->days) / 7)) . ' weeks');
+								$endDt->modify('+' . $calendarTimes . ' ' . $term);
+							} elseif ($calendarTimes == 0 && $repeat !== 1) {
+								$dateDiff = date_diff($startDt, $currentDate);
+								$startDt->modify($dateDiff->format('%R') . (round(($dateDiff->days) / 7)) . ' weeks');
+								$endDt->modify($dateDiff->format('%R') . (round(($dateDiff->days) / 7)) . ' weeks');
+							}
+							$calendarStartDiff = date_diff($startDt, $newestDay);
+							$calendarEndDiff = date_diff($startDt, $oldestDay);
+							if ($originalTimeZone && $originalTimeZone !== 'UTC' && (strpos($start, 'Z') == false)) {
+								$dateTimeOriginalTZ = new DateTimeZone($originalTimeZone);
+								$dateTimeOriginal = new DateTime('now', $dateTimeOriginalTZ);
+								$dateTimeUTCTZ = new DateTimeZone(date_default_timezone_get());
+								$dateTimeUTC = new DateTime('now', $dateTimeUTCTZ);
+								$dateTimeOriginalOffset = $dateTimeOriginal->getOffset() / 3600;
+								$dateTimeUTCOffset = $dateTimeUTC->getOffset() / 3600;
+								$diff = $dateTimeUTCOffset - $dateTimeOriginalOffset;
+								$startDt->modify('+ ' . $diff . ' hour');
+								$endDt->modify('+ ' . $diff . ' hour');
+							}
+							$startDt->setTimeZone(new DateTimezone ($timeZone));
+							$endDt->setTimeZone(new DateTimezone ($timeZone));
+							$startDate = $startDt->format(DateTime::ATOM);
+							$endDate = $endDt->format(DateTime::ATOM);
+							if (new DateTime() < $endDt) {
+								$extraClass = 'text-info';
+							} else {
+								$extraClass = 'text-success';
+							}
+							/* Getting the name of event */
+							$eventName = $icsEvent['SUMMARY'];
+							if (!calendarDaysCheck($calendarStartDiff->format('%R') . $calendarStartDiff->days, $calendarEndDiff->format('%R') . $calendarEndDiff->days)) {
+								break;
+							}
+							if (isset($icsEvent["RRULE"]) && getCalenderRepeatUntil(trim($icsEvent["RRULE"]))) {
+								$untilDate = new DateTime (getCalenderRepeatUntil(trim($icsEvent["RRULE"])));
+								$untilDiff = date_diff($currentDate, $untilDate);
+								if ($untilDiff->days > 0) {
+									break;
+								}
+							}
+							$icalEvents[] = array(
+								'title' => $eventName,
+								'imagetype' => 'calendar-o text-warning text-custom-calendar ' . $extraClass,
+								'imagetypeFilter' => 'ical',
+								'className' => 'bg-calendar calendar-item bg-custom-calendar',
+								'start' => $startDate,
+								'end' => $endDate,
+								'bgColor' => str_replace('text', 'bg', $extraClass),
+							);
+							$calendarTimes = $calendarTimes + 1;
+						}
 					}
 				}
 			}
@@ -1207,6 +1405,59 @@ function getCalendar()
 	}
 	$calendarSources['events'] = $calendarItems;
 	return ($calendarSources) ? $calendarSources : false;
+}
+
+function calendarDaysCheck($entryStart, $entryEnd)
+{
+	$success = false;
+	$entryStart = intval($entryStart);
+	$entryEnd = intval($entryEnd);
+	if ($entryStart >= 0 && $entryEnd <= 0) {
+		$success = true;
+	}
+	return $success;
+}
+
+function getCalenderRepeat($value)
+{
+	//FREQ=DAILY
+	//RRULE:FREQ=WEEKLY;BYDAY=TH
+	$first = explode('=', $value);
+	if (count($first) > 1) {
+		$second = explode(';', $first[1]);
+	} else {
+		return $value;
+	}
+	if ($second) {
+		return $second[0];
+	} else {
+		return $first[1];
+	}
+}
+
+function getCalenderRepeatUntil($value)
+{
+	$first = explode('UNTIL=', $value);
+	if (count($first) > 1) {
+		if(strpos($first[1], ';') !== false){
+			$check = explode(';', $first[1]);
+			return $check[0];
+		}else{
+			return $first[1];
+		}
+	} else {
+		return false;
+	}
+}
+
+function getCalenderRepeatCount($value)
+{
+	$first = explode('COUNT=', $value);
+	if (count($first) > 1) {
+		return $first[1];
+	} else {
+		return false;
+	}
 }
 
 function getSonarrCalendar($array, $number)
@@ -1278,11 +1529,11 @@ function getSonarrCalendar($array, $number)
 			"runtime" => $child['series']['runtime'],
 			"image" => $fanart,
 			"ratings" => $child['series']['ratings']['value'],
-			"videoQuality" => $child["hasFile"] ? $child['episodeFile']['quality']['quality']['name'] : "unknown",
+			"videoQuality" => $child["hasFile"] && isset($child['episodeFile']['quality']['quality']['name']) ? $child['episodeFile']['quality']['quality']['name'] : "unknown",
 			"audioChannels" => $child["hasFile"] && isset($child['episodeFile']['mediaInfo']) ? $child['episodeFile']['mediaInfo']['audioChannels'] : "unknown",
 			"audioCodec" => $child["hasFile"] && isset($child['episodeFile']['mediaInfo']) ? $child['episodeFile']['mediaInfo']['audioCodec'] : "unknown",
 			"videoCodec" => $child["hasFile"] && isset($child['episodeFile']['mediaInfo']) ? $child['episodeFile']['mediaInfo']['videoCodec'] : "unknown",
-			"size" => $child["hasFile"] ? $child['episodeFile']['size'] : "unknown",
+			"size" => $child["hasFile"] && isset($child['episodeFile']['size']) ? $child['episodeFile']['size'] : "unknown",
 			"genres" => $child['series']['genres'],
 		);
 		array_push($gotCalendar, array(
@@ -1319,7 +1570,15 @@ function getLidarrCalendar($array, $number)
 		if (new DateTime() < new DateTime($releaseDate)) {
 			$unaired = true;
 		}
-		$downloaded = (isset($child['statistics']['percentOfEpisodes']) && $child['statistics']['percentOfEpisodes'] !== '100.0') ? '0' : '1';
+		if (isset($child['statistics']['percentOfTracks'])) {
+			if ($child['statistics']['percentOfTracks'] == '100.0') {
+				$downloaded = '1';
+			} else {
+				$downloaded = '0';
+			}
+		} else {
+			$downloaded = '0';
+		}
 		if ($downloaded == "0" && isset($unaired)) {
 			$downloaded = "text-info";
 		} elseif ($downloaded == "1") {
@@ -1358,7 +1617,8 @@ function getLidarrCalendar($array, $number)
 			"imagetypeFilter" => "music",
 			"downloadFilter" => $downloaded,
 			"bgColor" => str_replace('text', 'bg', $downloaded),
-			"details" => $details
+			"details" => $details,
+			"data" => $child
 		));
 	}
 	if ($i != 0) {
@@ -1369,6 +1629,8 @@ function getLidarrCalendar($array, $number)
 
 function getRadarrCalendar($array, $number, $url)
 {
+	$url = rtrim($url, '/'); //remove trailing slash
+	$url = $url . '/api';
 	$array = json_decode($array, true);
 	$gotCalendar = array();
 	$i = 0;
@@ -1399,7 +1661,6 @@ function getRadarrCalendar($array, $number, $url)
 			$banner = "/plugins/images/cache/no-np.png";
 			foreach ($child['images'] as $image) {
 				if ($image['coverType'] == "banner" || $image['coverType'] == "fanart") {
-					$url = rtrim($url, '/'); //remove trailing slash
 					$imageUrl = $image['url'];
 					$urlParts = explode("/", $url);
 					$imageParts = explode("/", $image['url']);
@@ -1407,7 +1668,7 @@ function getRadarrCalendar($array, $number, $url)
 						unset($imageParts[1]);
 						$imageUrl = implode("/", $imageParts);
 					}
-					$banner = $url . $imageUrl;
+					$banner = $url . $imageUrl . '?apikey=' . $GLOBALS['radarrToken'];
 				}
 			}
 			if ($banner !== "/plugins/images/cache/no-np.png") {
@@ -2070,9 +2331,79 @@ function getOmbiRequests($type = "both", $limit = 50)
 	return $api;
 }
 
+function unifiConnect()
+{
+	if ($GLOBALS['homepageUnifiEnabled'] && !empty($GLOBALS['unifiURL']) && !empty($GLOBALS['unifiSiteName']) && !empty($GLOBALS['unifiCookie']) && !empty($GLOBALS['unifiUsername']) && !empty($GLOBALS['unifiPassword']) && qualifyRequest($GLOBALS['homepageUnifiAuth'])) {
+		$api['content']['unifi'] = array();
+		$url = qualifyURL($GLOBALS['unifiURL']);
+		$urlStat = $url . '/api/s/' . $GLOBALS['unifiSiteName'] . '/stat/health';
+		try {
+			$options = array('verify' => false, 'verifyname' => false, 'follow_redirects' => false);
+			$data = array(
+				'username' => $GLOBALS['unifiUsername'],
+				'password' => decrypt($GLOBALS['unifiPassword']),
+				'remember' => true,
+				'strict' => true
+			);
+			$response = Requests::post($url . '/api/login', array(), json_encode($data), $options);
+			if ($response->success) {
+				$cookie['unifises'] = ($response->cookies['unifises']->value) ?? false;
+				$cookie['csrf_token'] = ($response->cookies['csrf_token']->value) ?? false;
+			}else{
+				return false;
+			}
+			$headers = array(
+				'cookie' => 'unifises=' . $cookie['unifises'] . ';' . 'csrf_token=' . $cookie['csrf_token'] . ';'
+			);
+			$response = Requests::get($urlStat, $headers, $options);
+			if ($response->success) {
+				$api['content']['unifi'] = json_decode($response->body, true);
+			}
+		} catch (Requests_Exception $e) {
+			writeLog('error', 'Unifi Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
+		};
+		$api['content']['unifi'] = isset($api['content']['unifi']) ? $api['content']['unifi'] : false;
+		return $api;
+	}
+	return false;
+}
+
 function testAPIConnection($array)
 {
 	switch ($array['data']['action']) {
+		case 'unifiSite':
+			if (!empty($GLOBALS['unifiURL'])  && !empty($GLOBALS['unifiCookie']) && !empty($GLOBALS['unifiUsername'])  && !empty($GLOBALS['unifiPassword'])) {
+				$url = qualifyURL($GLOBALS['unifiURL']);
+				try {
+					$options = array('verify' => false, 'verifyname' => false, 'follow_redirects' => false);
+					$data = array(
+						'username' => $GLOBALS['unifiUsername'],
+						'password' => decrypt($GLOBALS['unifiPassword']),
+						'remember' => true,
+						'strict' => true
+					);
+					$response = Requests::post($url . '/api/login', array(), json_encode($data), $options);
+					if ($response->success) {
+						$cookie['unifises'] = ($response->cookies['unifises']->value) ?? false;
+						$cookie['csrf_token'] = ($response->cookies['csrf_token']->value) ?? false;
+					}else{
+						return false;
+					}
+					$headers = array(
+						'cookie' => 'unifises=' . $cookie['unifises'] . ';' . 'csrf_token=' . $cookie['csrf_token'] . ';'
+					);
+					$response = Requests::get($url . '/api/self/sites', $headers, $options);
+					if ($response->success) {
+						$body = json_decode($response->body, true);
+						return $body;
+					}else{
+						return false;
+					}
+				} catch (Requests_Exception $e) {
+					writeLog('error', 'Unifi Connect Function - Error: ' . $e->getMessage(), 'SYSTEM');
+				};
+			}
+			break;
 		case 'ombi':
 			if (!empty($GLOBALS['ombiURL']) && !empty($GLOBALS['ombiToken'])) {
 				$url = qualifyURL($GLOBALS['ombiURL']);
@@ -2195,6 +2526,22 @@ function testAPIConnection($array)
 				return 'URL/s and/or Token/s not setup';
 			}
 			break;
+        case 'jdownloader':
+            if (!empty($GLOBALS['jdownloaderURL'])) {
+                $url = qualifyURL($GLOBALS['jdownloaderURL']);
+                try {
+                    $options = (localURL($url)) ? array('verify' => false) : array();
+                    $response = Requests::get($url, array(), $options);
+                    if ($response->success) {
+                        return true;
+                    }
+                } catch (Requests_Exception $e) {
+                    return $e->getMessage();
+                };
+            } else {
+                return 'URL and/or Token not setup';
+            }
+            break;
 		case 'sabnzbd':
 			if (!empty($GLOBALS['sabnzbdURL']) && !empty($GLOBALS['sabnzbdToken'])) {
 				$url = qualifyURL($GLOBALS['sabnzbdURL']);
@@ -2271,6 +2618,90 @@ function testAPIConnection($array)
 				};
 			}
 			break;
+		case 'ldap_login':
+			$username = $array['data']['data']['username'];
+			$password = $array['data']['data']['password'];
+			if (empty($username) || empty($password)) {
+				return 'Missing Username or Password';
+			}
+			if (!empty($GLOBALS['authBaseDN']) && !empty($GLOBALS['authBackendHost'])) {
+				$ad = new \Adldap\Adldap();
+				// Create a configuration array.
+				$ldapServers = explode(',', $GLOBALS['authBackendHost']);
+				$i = 0;
+				foreach ($ldapServers as $key => $value) {
+					// Calculate parts
+					$digest = parse_url(trim($value));
+					$scheme = strtolower((isset($digest['scheme']) ? $digest['scheme'] : 'ldap'));
+					$host = (isset($digest['host']) ? $digest['host'] : (isset($digest['path']) ? $digest['path'] : ''));
+					$port = (isset($digest['port']) ? $digest['port'] : (strtolower($scheme) == 'ldap' ? 389 : 636));
+					// Reassign
+					$ldapHosts[] = $host;
+					$ldapServersNew[$key] = $scheme . '://' . $host . ':' . $port; // May use this later
+					if ($i == 0) {
+						$ldapPort = $port;
+					}
+					$i++;
+				}
+				$config = [
+					// Mandatory Configuration Options
+					'hosts' => $ldapHosts,
+					'base_dn' => $GLOBALS['authBaseDN'],
+					'username' => (empty($GLOBALS['ldapBindUsername'])) ? null : $GLOBALS['ldapBindUsername'],
+					'password' => (empty($GLOBALS['ldapBindPassword'])) ? null : decrypt($GLOBALS['ldapBindPassword']),
+					// Optional Configuration Options
+					'schema' => (($GLOBALS['ldapType'] == '1') ? Adldap\Schemas\ActiveDirectory::class : (($GLOBALS['ldapType'] == '2') ? Adldap\Schemas\OpenLDAP::class : Adldap\Schemas\FreeIPA::class)),
+					'account_prefix' => (empty($GLOBALS['authBackendHostPrefix'])) ? null : $GLOBALS['authBackendHostPrefix'],
+					'account_suffix' => (empty($GLOBALS['authBackendHostSuffix'])) ? null : $GLOBALS['authBackendHostSuffix'],
+					'port' => $ldapPort,
+					'follow_referrals' => false,
+					'use_ssl' => false,
+					'use_tls' => false,
+					'version' => 3,
+					'timeout' => 5,
+					// Custom LDAP Options
+					'custom_options' => [
+						// See: http://php.net/ldap_set_option
+						//LDAP_OPT_X_TLS_REQUIRE_CERT => LDAP_OPT_X_TLS_HARD
+					]
+				];
+				// Add a connection provider to Adldap.
+				$ad->addProvider($config);
+				try {
+					// If a successful connection is made to your server, the provider will be returned.
+					$provider = $ad->connect();
+					//prettyPrint($provider);
+					if ($provider->auth()->attempt($username, $password, true)) {
+						// Passed.
+						$user = $provider->search()->find($username);
+						//return $user->getFirstAttribute('cn');
+						//return $user->getGroups(['cn']);
+						//return $user;
+						//return $user->getUserPrincipalName();
+						//return $user->getGroups(['cn']);
+						return true;
+					} else {
+						// Failed.
+						return 'Username/Password Failed to authenticate';
+					}
+				} catch (\Adldap\Auth\BindException $e) {
+					$detailedError = $e->getDetailedError();
+					writeLog('error', 'LDAP Function - Error: ' . $detailedError->getErrorMessage(), $username);
+					return $detailedError->getErrorMessage();
+					// There was an issue binding / connecting to the server.
+				} catch (Adldap\Auth\UsernameRequiredException $e) {
+					$detailedError = $e->getDetailedError();
+					writeLog('error', 'LDAP Function - Error: ' . $detailedError->getErrorMessage(), $username);
+					return $detailedError->getErrorMessage();
+					// The user didn't supply a username.
+				} catch (Adldap\Auth\PasswordRequiredException $e) {
+					$detailedError = $e->getDetailedError();
+					writeLog('error', 'LDAP Function - Error: ' . $detailedError->getErrorMessage(), $username);
+					return $detailedError->getErrorMessage();
+					// The user didn't supply a password.
+				}
+			}
+			break;
 		case 'ldap':
 			if (!empty($GLOBALS['authBaseDN']) && !empty($GLOBALS['authBackendHost'])) {
 				$ad = new \Adldap\Adldap();
@@ -2318,8 +2749,9 @@ function testAPIConnection($array)
 					// If a successful connection is made to your server, the provider will be returned.
 					$provider = $ad->connect();
 				} catch (\Adldap\Auth\BindException $e) {
-					writeLog('error', 'LDAP Function - Error: ' . $e->getMessage(), 'SYSTEM');
-					return $e->getMessage();
+					$detailedError = $e->getDetailedError();
+					writeLog('error', 'LDAP Function - Error: ' . $detailedError->getErrorMessage(), 'SYSTEM');
+					return $detailedError->getErrorMessage();
 					// There was an issue binding / connecting to the server.
 				}
 				return ($provider) ? true : false;

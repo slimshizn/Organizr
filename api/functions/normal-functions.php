@@ -82,7 +82,7 @@ function coookie($type, $name, $value = '', $days = -1, $http = true)
 	if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == "https") {
 		$Secure = true;
 		$HTTPOnly = true;
-	} elseif (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] != 'off') {
+	} elseif (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' && $_SERVER['HTTPS'] !== '') {
 		$Secure = true;
 		$HTTPOnly = true;
 	} else {
@@ -119,6 +119,55 @@ function coookie($type, $name, $value = '', $days = -1, $http = true)
 			. (!$HTTPOnly ? '' : '; HttpOnly'), false);
 		header('Set-Cookie: ' . rawurlencode($name) . '=' . rawurlencode($value)
 			. (empty($days) ? '' : '; expires=' . gmdate('D, d-M-Y H:i:s', time() - 3600) . ' GMT')
+			. (empty($Path) ? '' : '; path=' . $Path)
+			. (empty($Domain) ? '' : '; domain=' . $DomainTest)
+			. (!$Secure ? '' : '; secure')
+			. (!$HTTPOnly ? '' : '; HttpOnly'), false);
+	}
+}
+
+function coookieSeconds($type, $name, $value = '', $ms, $http = true)
+{
+	if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == "https") {
+		$Secure = true;
+		$HTTPOnly = true;
+	} elseif (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' && $_SERVER['HTTPS'] !== '') {
+		$Secure = true;
+		$HTTPOnly = true;
+	} else {
+		$Secure = false;
+		$HTTPOnly = false;
+	}
+	if (!$http) {
+		$HTTPOnly = false;
+	}
+	$Path = '/';
+	$Domain = parseDomain($_SERVER['HTTP_HOST']);
+	$DomainTest = parseDomain($_SERVER['HTTP_HOST'], true);
+	if ($type == 'set') {
+		$_COOKIE[$name] = $value;
+		header('Set-Cookie: ' . rawurlencode($name) . '=' . rawurlencode($value)
+			. (empty($ms) ? '' : '; expires=' . gmdate('D, d-M-Y H:i:s', time() + ($ms / 1000)) . ' GMT')
+			. (empty($Path) ? '' : '; path=' . $Path)
+			. (empty($Domain) ? '' : '; domain=' . $Domain)
+			. (!$Secure ? '' : '; secure')
+			. (!$HTTPOnly ? '' : '; HttpOnly'), false);
+		header('Set-Cookie: ' . rawurlencode($name) . '=' . rawurlencode($value)
+			. (empty($ms) ? '' : '; expires=' . gmdate('D, d-M-Y H:i:s', time() + ($ms / 1000)) . ' GMT')
+			. (empty($Path) ? '' : '; path=' . $Path)
+			. (empty($Domain) ? '' : '; domain=' . $DomainTest)
+			. (!$Secure ? '' : '; secure')
+			. (!$HTTPOnly ? '' : '; HttpOnly'), false);
+	} elseif ($type == 'delete') {
+		unset($_COOKIE[$name]);
+		header('Set-Cookie: ' . rawurlencode($name) . '=' . rawurlencode($value)
+			. (empty($ms) ? '' : '; expires=' . gmdate('D, d-M-Y H:i:s', time() - 3600) . ' GMT')
+			. (empty($Path) ? '' : '; path=' . $Path)
+			. (empty($Domain) ? '' : '; domain=' . $Domain)
+			. (!$Secure ? '' : '; secure')
+			. (!$HTTPOnly ? '' : '; HttpOnly'), false);
+		header('Set-Cookie: ' . rawurlencode($name) . '=' . rawurlencode($value)
+			. (empty($ms) ? '' : '; expires=' . gmdate('D, d-M-Y H:i:s', time() - 3600) . ' GMT')
 			. (empty($Path) ? '' : '; path=' . $Path)
 			. (empty($Domain) ? '' : '; domain=' . $DomainTest)
 			. (!$Secure ? '' : '; secure')
@@ -262,6 +311,11 @@ function getCert()
 {
 	$url = 'http://curl.haxx.se/ca/cacert.pem';
 	$file = __DIR__ . DIRECTORY_SEPARATOR . 'cert' . DIRECTORY_SEPARATOR . 'cacert.pem';
+	if($GLOBALS['selfSignedCert'] !== ''){
+		if(file_exists($GLOBALS['selfSignedCert'])){
+			return $GLOBALS['selfSignedCert'];
+		}
+	}
 	if (!file_exists($file)) {
 		file_put_contents($file, fopen($url, 'r'));
 	} elseif (file_exists($file) && time() - 2592000 > filemtime($file)) {
@@ -392,14 +446,10 @@ function qualifyURL($url, $return = false)
 		$url = $protocol . getServer() . $url;
 	}
 	// Get Digest
-	$digest = parse_url($url);
+	$digest = parse_url(rtrim(preg_replace('/\s+/', '', $url), '/'));
 	// http/https
 	if (!isset($digest['scheme'])) {
-		if (isset($digest['port']) && in_array($digest['port'], array(80, 8080, 8096, 32400, 7878, 8989, 8182, 8081, 6789))) {
-			$scheme = 'http';
-		} else {
-			$scheme = 'https';
-		}
+		$scheme = 'http';
 	} else {
 		$scheme = $digest['scheme'];
 	}
@@ -408,7 +458,7 @@ function qualifyURL($url, $return = false)
 	// Port
 	$port = (isset($digest['port']) ? ':' . $digest['port'] : '');
 	// Path
-	$path = (isset($digest['path']) && $digest['path'] !== '/' ? $digest['path'] : '');
+	$path = (isset($digest['path']) ? $digest['path'] : '');
 	// Output
 	$array = array(
 		'scheme' => $scheme,
@@ -587,7 +637,7 @@ function dbExtension($string)
 
 function localIPRanges()
 {
-	return array(
+	$mainArray = array(
 		array(
 			'from' => '10.0.0.0',
 			'to' => '10.255.255.255'
@@ -605,6 +655,22 @@ function localIPRanges()
 			'to' => '127.255.255.255'
 		),
 	);
+	$override = false;
+	if ($GLOBALS['localIPFrom']) {
+		$from = trim($GLOBALS['localIPFrom']);
+		$override = true;
+	}
+	if ($GLOBALS['localIPTo']) {
+		$to = trim($GLOBALS['localIPTo']);
+	}
+	if ($override) {
+		$newArray = array(
+			'from' => $from,
+			'to' => (isset($to)) ? $to : $from
+		);
+		array_push($mainArray, $newArray);
+	}
+	return $mainArray;
 }
 
 function isLocal($checkIP = null)
@@ -629,4 +695,60 @@ function checkOverrideURL($url, $override)
 	} else {
 		return $url . $override;
 	}
+}
+
+function clearPOSTPassword($array)
+{
+	if (isset($array['data'])) {
+		foreach ($array['data'] as $k => $v) {
+			// clear password from array
+			if ($k == 'password') {
+				$array['data'][$k] = '*******';
+			}
+		}
+	}
+	if (isset($array['data']['data'])) {
+		foreach ($array['data']['data'] as $k => $v) {
+			// clear password from array
+			if ($k == 'password') {
+				$array['data']['data'][$k] = '*******';
+			}
+		}
+	}
+	return $array;
+}
+
+function timeExecution($previous = null)
+{
+	if (!$previous) {
+		return microtime(true) - $_SERVER["REQUEST_TIME_FLOAT"];
+	} else {
+		return (microtime(true) - $_SERVER["REQUEST_TIME_FLOAT"]) - $previous;
+	}
+}
+
+function formatSeconds($seconds)
+{
+	$hours = 0;
+	$milliseconds = str_replace("0.", '', $seconds - floor($seconds));
+	if ($seconds > 3600) {
+		$hours = floor($seconds / 3600);
+	}
+	$seconds = $seconds % 3600;
+	$time = str_pad($hours, 2, '0', STR_PAD_LEFT)
+		. gmdate(':i:s', $seconds)
+		. ($milliseconds ? '.' . $milliseconds : '');
+	$parts = explode(':', $time);
+	$timeExtra = explode('.', $parts[2]);
+	if ($parts[0] !== '00') { // hours
+		return $time;
+	} elseif ($parts[1] !== '00') { // mins
+		return $parts[1] . 'min(s) ' . $timeExtra[0] . 's';
+	} elseif ($timeExtra[0] !== '00') { // secs
+		return substr($parts[2], 0, 5) . 's | ' . substr($parts[2], 0, 7) * 1000 . 'ms';
+	} else {
+		return substr($parts[2], 0, 7) * 1000 . 'ms';
+	}
+	//return $timeExtra[0] . 's ' . (number_format(('0.' . substr($timeExtra[1], 0, 4)), 4, '.', '') * 1000) . 'ms';
+	//return (number_format(('0.' . substr($timeExtra[1], 0, 4)), 4, '.', '') * 1000) . 'ms';
 }

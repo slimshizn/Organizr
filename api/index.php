@@ -1,5 +1,4 @@
 <?php
-$generationTime = -microtime(true);
 //include functions
 require_once 'functions.php';
 //Set result array
@@ -23,17 +22,25 @@ $approvedFunctionsBypass = array(
 	'v1_wizard_config',
 	'v1_login',
 	'v1_wizard_path',
+	'v1_login_api'
 );
 if (!in_array($function, $approvedFunctionsBypass)) {
 	if (isApprovedRequest($method) === false) {
 		$result['status'] = "error";
 		$result['statusText'] = "Not Authorized";
+		http_response_code(401);
 		writeLog('success', 'Killed Attack From [' . (isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : 'No Referer') . ']', $GLOBALS['organizrUser']['username']);
 		exit(json_encode($result));
 	}
 }
 $result['request'] = key($_GET);
 $result['params'] = $_POST;
+
+//Custom Page Check
+if(strpos($function,'v1_custom_page_') !== false){
+	$endpoint = explode('v1_custom_page_', $function)[1];
+	$function = 'v1_custom_page';
+}
 switch ($function) {
 	case 'v1_settings_page':
 		switch ($method) {
@@ -650,6 +657,19 @@ switch ($function) {
 				break;
 		}
 		break;
+	case 'v1_login_api':
+		switch ($method) {
+			case 'POST':
+				$result['status'] = 'success';
+				$result['statusText'] = 'success';
+				$result['data'] = apiLogin();
+				break;
+			default:
+				$result['status'] = 'error';
+				$result['statusText'] = 'The function requested is not defined for method: ' . $method;
+				break;
+		}
+		break;
 	case 'v1_register':
 		switch ($method) {
 			case 'POST':
@@ -1144,8 +1164,8 @@ switch ($function) {
 				auth();
 				break;
 			default:
-				$result['status'] = 'error';
-				$result['statusText'] = 'The function requested is not defined for method: ' . $method;
+				//exit(http_response_code(401));
+				auth();
 				break;
 		}
 		break;
@@ -1226,6 +1246,19 @@ switch ($function) {
 				$result['status'] = 'success';
 				$result['statusText'] = 'success';
 				$result['data'] = plexJoinAPI($_POST);
+				break;
+			default:
+				$result['status'] = 'error';
+				$result['statusText'] = 'The function requested is not defined for method: ' . $method;
+				break;
+		}
+		break;
+	case 'v1_emby_join':
+		switch ($method) {
+			case 'POST':
+				$result['status'] = 'success';
+				$result['statusText'] = 'success';
+				$result['data'] = embyJoinAPI($_POST);
 				break;
 			default:
 				$result['status'] = 'error';
@@ -1329,6 +1362,20 @@ switch ($function) {
 				break;
 		}
 		break;
+	case 'v1_custom_page':
+		switch ($method) {
+			case 'GET':
+				$customPage = 'customPage'.ucwords($endpoint);
+				$result['status'] = 'success';
+				$result['statusText'] = 'success';
+				$result['data'] = $$customPage;
+				break;
+			default:
+				$result['status'] = 'error';
+				$result['statusText'] = 'The function requested is not defined for method: ' . $method;
+				break;
+		}
+		break;
 	default:
 		//No Function Available
 		$result['status'] = 'error';
@@ -1341,12 +1388,16 @@ if (!$result) {
 	$result['error'] = "An error has occurred";
 }
 $result['generationDate'] = $GLOBALS['currentTime'];
-$generationTime += microtime(true);
-$result['generationTime'] = (sprintf('%f', $generationTime) * 1000) . 'ms';
+$result['generationTime'] = formatSeconds(timeExecution());
+//Set HTTP Code
+if($result['statusText'] == "API/Token invalid or not set"){
+	http_response_code(401);
+}else{
+	http_response_code(200);
+}
 //return JSON array
 if ($pretty) {
 	echo '<pre>' . safe_json_encode($result, JSON_PRETTY_PRINT) . '</pre>';
 } else {
 	exit(safe_json_encode($result, JSON_HEX_QUOT | JSON_HEX_TAG));
 }
-

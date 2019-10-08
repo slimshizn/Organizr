@@ -6,6 +6,7 @@ function homepageOrder()
 		"homepageOrdercustomhtml" => $GLOBALS['homepageOrdercustomhtml'],
 		"homepageOrdercustomhtmlTwo" => $GLOBALS['homepageOrdercustomhtmlTwo'],
 		"homepageOrdernzbget" => $GLOBALS['homepageOrdernzbget'],
+		"homepageOrderjdownloader" => $GLOBALS['homepageOrderjdownloader'],
 		"homepageOrdersabnzbd" => $GLOBALS['homepageOrdersabnzbd'],
 		"homepageOrderplexnowplaying" => $GLOBALS['homepageOrderplexnowplaying'],
 		"homepageOrderplexrecent" => $GLOBALS['homepageOrderplexrecent'],
@@ -19,6 +20,8 @@ function homepageOrder()
 		"homepageOrderdeluge" => $GLOBALS['homepageOrderdeluge'],
 		"homepageOrderrTorrent" => $GLOBALS['homepageOrderrTorrent'],
 		"homepageOrderdownloader" => $GLOBALS['homepageOrderdownloader'],
+		"homepageOrderhealthchecks" => $GLOBALS['homepageOrderhealthchecks'],
+		"homepageOrderunifi" => $GLOBALS['homepageOrderunifi'],
 	);
 	asort($homepageOrder);
 	return $homepageOrder;
@@ -172,6 +175,30 @@ function buildHomepageItem($homepageItem)
 				}
 			}
 			break;
+        case 'homepageOrderjdownloader':
+            if ($GLOBALS['homepageJdownloaderEnabled'] && qualifyRequest($GLOBALS['homepageJdownloaderAuth'])) {
+                if ($GLOBALS['jdownloaderCombine']) {
+                    $item .= '
+					<script>
+					// JDownloader
+					buildDownloaderCombined(\'jdownloader\');
+					homepageDownloader("jdownloader", "' . $GLOBALS['homepageDownloadRefresh'] . '");
+					// End JDownloader
+					</script>
+					';
+                } else {
+                    $item .= '<div class="white-box"><h2 class="text-center" lang="en">Loading Download Queue...</h2></div>';
+                    $item .= '
+					<script>
+					// JDownloader
+					$("#' . $homepageItem . '").html(buildDownloader("jdownloader"));
+					homepageDownloader("jdownloader", "' . $GLOBALS['homepageDownloadRefresh'] . '");
+					// End JDownloader
+					</script>
+					';
+                }
+            }
+            break;
 		case 'homepageOrdersabnzbd':
 			if ($GLOBALS['homepageSabnzbdEnabled'] && qualifyRequest($GLOBALS['homepageSabnzbdAuth'])) {
 				if ($GLOBALS['sabnzbdCombine']) {
@@ -233,7 +260,7 @@ function buildHomepageItem($homepageItem)
 			}
 			break;
 		case 'homepageOrderembynowplaying':
-			if ($GLOBALS['homepageEmbyStreams']) {
+			if ($GLOBALS['homepageEmbyStreams'] && $GLOBALS['homepageEmbyEnabled']) {
 				$item .= '<div class="white-box"><h2 class="text-center" lang="en">Loading Now Playing...</h2></div>';
 				$item .= '
 				<script>
@@ -245,7 +272,7 @@ function buildHomepageItem($homepageItem)
 			}
 			break;
 		case 'homepageOrderembyrecent':
-			if ($GLOBALS['homepageEmbyRecent']) {
+			if ($GLOBALS['homepageEmbyRecent'] && $GLOBALS['homepageEmbyEnabled']) {
 				$item .= '<div class="white-box"><h2 class="text-center" lang="en">Loading Recent...</h2></div>';
 				$item .= '
 				<script>
@@ -276,6 +303,30 @@ function buildHomepageItem($homepageItem)
 				// Calendar
 				homepageCalendar("' . $GLOBALS['calendarRefresh'] . '");
 				// End Calendar
+				</script>
+				';
+			}
+			break;
+		case 'homepageOrderhealthchecks':
+			if ($GLOBALS['homepageHealthChecksEnabled'] && qualifyRequest($GLOBALS['homepageHealthChecksAuth'])) {
+				$item .= '<div class="white-box"><h2 class="text-center" lang="en">Loading Health Checks...</h2></div>';
+				$item .= '
+				<script>
+				// Health Checks
+				homepageHealthChecks("' . $GLOBALS['healthChecksTags'] . '","' . $GLOBALS['homepageHealthChecksRefresh'] . '");
+				// End Health Checks
+				</script>
+				';
+			}
+			break;
+		case 'homepageOrderunifi':
+			if ($GLOBALS['homepageUnifiEnabled'] && qualifyRequest($GLOBALS['homepageUnifiAuth'])) {
+				$item .= '<div class="white-box"><h2 class="text-center" lang="en">Loading Unifi...</h2></div>';
+				$item .= '
+				<script>
+				// Unifi
+				homepageUnifi("' . $GLOBALS['homepageHealthChecksRefresh'] . '");
+				// End Unifi
 				</script>
 				';
 			}
@@ -962,6 +1013,87 @@ function getHomepageList()
 				)
 			)
 		),
+        array(
+            'name' => 'JDownloader',
+            'enabled' => (strpos('personal', $GLOBALS['license']) !== false) ? true : false,
+            'image' => 'plugins/images/tabs/jdownloader.png',
+            'category' => 'Downloader',
+            'settings' => array(
+	            'custom' => '
+				<div class="row">
+                    <div class="col-lg-12">
+                        <div class="panel panel-info">
+                            <div class="panel-heading">
+								<span lang="en">Notice</span>
+                            </div>
+                            <div class="panel-wrapper collapse in" aria-expanded="true">
+                                <div class="panel-body">
+									<ul class="list-icons">
+                                        <li><i class="fa fa-chevron-right text-danger"></i> <a href="https://pypi.org/project/myjd-api/" target="_blank">Download [myjd-api] Module</a></li>
+                                        <li><i class="fa fa-chevron-right text-danger"></i> Add <b>/api/myjd</b> to the URL if you are using <a href="https://pypi.org/project/RSScrawler/" target="_blank">RSScrawler</a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+				</div>
+				',
+                'Enable' => array(
+                    array(
+                        'type' => 'switch',
+                        'name' => 'homepageJdownloaderEnabled',
+                        'label' => 'Enable',
+                        'value' => $GLOBALS['homepageJdownloaderEnabled']
+                    ),
+                    array(
+                        'type' => 'select',
+                        'name' => 'homepageJdownloaderAuth',
+                        'label' => 'Minimum Authentication',
+                        'value' => $GLOBALS['homepageJdownloaderAuth'],
+                        'options' => $groups
+                    )
+                ),
+                'Connection' => array(
+                    array(
+                        'type' => 'input',
+                        'name' => 'jdownloaderURL',
+                        'label' => 'URL',
+                        'value' => $GLOBALS['jdownloaderURL'],
+                        'help' => 'Please make sure to use local IP address and port - You also may use local dns name too.',
+                        'placeholder' => 'http(s)://hostname:port'
+                    )
+                ),
+                'Misc Options' => array(
+                    array(
+                        'type' => 'select',
+                        'name' => 'homepageDownloadRefresh',
+                        'label' => 'Refresh Seconds',
+                        'value' => $GLOBALS['homepageDownloadRefresh'],
+                        'options' => optionTime()
+                    ),
+                    array(
+                        'type' => 'switch',
+                        'name' => 'jdownloaderCombine',
+                        'label' => 'Add to Combined Downloader',
+                        'value' => $GLOBALS['jdownloaderCombine']
+                    ),
+                ),
+                'Test Connection' => array(
+                    array(
+                        'type' => 'blank',
+                        'label' => 'Please Save before Testing'
+                    ),
+                    array(
+                        'type' => 'button',
+                        'label' => '',
+                        'icon' => 'fa fa-flask',
+                        'class' => 'pull-right',
+                        'text' => 'Test Connection',
+                        'attr' => 'onclick="testAPIConnection(\'jdownloader\')"'
+                    ),
+                )
+            )
+        ),
 		array(
 			'name' => 'SabNZBD',
 			'enabled' => (strpos('personal', $GLOBALS['license']) !== false) ? true : false,
@@ -2029,6 +2161,43 @@ function getHomepageList()
 						'help' => 'Use Ombi Alias Names instead of Usernames - If Alias is blank, Alias will fallback to Username'
 					)
 				),
+				'Default Filter' => array(
+					array(
+						'type' => 'switch',
+						'name' => 'ombiDefaultFilterAvailable',
+						'label' => 'Show Available',
+						'value' => $GLOBALS['ombiDefaultFilterAvailable'],
+						'help' => 'Show All Available Ombi Requests'
+					),
+					array(
+						'type' => 'switch',
+						'name' => 'ombiDefaultFilterUnavailable',
+						'label' => 'Show Unavailable',
+						'value' => $GLOBALS['ombiDefaultFilterUnavailable'],
+						'help' => 'Show All Unavailable Ombi Requests'
+					),
+					array(
+						'type' => 'switch',
+						'name' => 'ombiDefaultFilterApproved',
+						'label' => 'Show Approved',
+						'value' => $GLOBALS['ombiDefaultFilterApproved'],
+						'help' => 'Show All Approved Ombi Requests'
+					),
+					array(
+						'type' => 'switch',
+						'name' => 'ombiDefaultFilterUnapproved',
+						'label' => 'Show Unapproved',
+						'value' => $GLOBALS['ombiDefaultFilterUnapproved'],
+						'help' => 'Show All Unapproved Ombi Requests'
+					),
+					array(
+						'type' => 'switch',
+						'name' => 'ombiDefaultFilterDenied',
+						'label' => 'Show Denied',
+						'value' => $GLOBALS['ombiDefaultFilterDenied'],
+						'help' => 'Show All Denied Ombi Requests'
+					)
+				),
 				'Test Connection' => array(
 					array(
 						'type' => 'blank',
@@ -2043,6 +2212,148 @@ function getHomepageList()
 						'attr' => 'onclick="testAPIConnection(\'ombi\')"'
 					),
 				)
+			)
+		),
+		array(
+			'name' => 'Unifi',
+			'enabled' => true,
+			'image' => 'plugins/images/tabs/ubnt.png',
+			'category' => 'Monitor',
+			'settings' => array(
+				'Enable' => array(
+					array(
+						'type' => 'switch',
+						'name' => 'homepageUnifiEnabled',
+						'label' => 'Enable',
+						'value' => $GLOBALS['homepageUnifiEnabled']
+					),
+					array(
+						'type' => 'select',
+						'name' => 'homepageUnifiAuth',
+						'label' => 'Minimum Authentication',
+						'value' => $GLOBALS['homepageUnifiAuth'],
+						'options' => $groups
+					)
+				),
+				'Connection' => array(
+					array(
+						'type' => 'input',
+						'name' => 'unifiURL',
+						'label' => 'URL',
+						'value' => $GLOBALS['unifiURL'],
+						'help' => 'URL for Unifi',
+						'placeholder' => 'Unifi API URL'
+					),
+					array(
+						'type' => 'blank',
+						'label' => ''
+					),
+					array(
+						'type' => 'input',
+						'name' => 'unifiUsername',
+						'label' => 'Username',
+						'value' => $GLOBALS['unifiUsername']
+					),
+					array(
+						'type' => 'password',
+						'name' => 'unifiPassword',
+						'label' => 'Password',
+						'value' => $GLOBALS['unifiPassword']
+					),
+					array(
+						'type' => 'input',
+						'name' => 'unifiSiteName',
+						'label' => 'Site Name',
+						'value' => $GLOBALS['unifiSiteName'],
+						'help' => 'Site Name - not Site ID nor Site Description',
+					),
+					array(
+						'type' => 'button',
+						'label' => 'Grab Unifi Site',
+						'icon' => 'fa fa-building',
+						'text' => 'Get Unifi Site',
+						'attr' => 'onclick="getUnifiSite(\'unifiSite\')"'
+					),
+				),
+				'Misc Options' => array(
+					array(
+						'type' => 'select',
+						'name' => 'homepageUnifiRefresh',
+						'label' => 'Refresh Seconds',
+						'value' => $GLOBALS['homepageUnifiRefresh'],
+						'options' => optionTime()
+					),
+				),
+				'Test Connection' => array(
+					array(
+						'type' => 'blank',
+						'label' => 'Please Save before Testing'
+					),
+					array(
+						'type' => 'button',
+						'label' => '',
+						'icon' => 'fa fa-flask',
+						'class' => 'pull-right',
+						'text' => 'Test Connection',
+						'attr' => 'onclick="testAPIConnection(\'unifi\')"'
+					),
+				)
+			)
+		),
+		array(
+			'name' => 'HealthChecks',
+			'enabled' => true,
+			'image' => 'plugins/images/tabs/healthchecks.png',
+			'category' => 'Monitor',
+			'settings' => array(
+				'Enable' => array(
+					array(
+						'type' => 'switch',
+						'name' => 'homepageHealthChecksEnabled',
+						'label' => 'Enable',
+						'value' => $GLOBALS['homepageHealthChecksEnabled']
+					),
+					array(
+						'type' => 'select',
+						'name' => 'homepageHealthChecksAuth',
+						'label' => 'Minimum Authentication',
+						'value' => $GLOBALS['homepageHealthChecksAuth'],
+						'options' => $groups
+					)
+				),
+				'Connection' => array(
+					array(
+						'type' => 'input',
+						'name' => 'healthChecksURL',
+						'label' => 'URL',
+						'value' => $GLOBALS['healthChecksURL'],
+						'help' => 'URL for HealthChecks API',
+						'placeholder' => 'HealthChecks API URL'
+					),
+					array(
+						'type' => 'password-alt',
+						'name' => 'healthChecksToken',
+						'label' => 'Token',
+						'value' => $GLOBALS['healthChecksToken']
+					)
+				),
+				'Misc Options' => array(
+					array(
+						'type' => 'input',
+						'name' => 'healthChecksTags',
+						'label' => 'Tags',
+						'value' => $GLOBALS['healthChecksTags'],
+						'help' => 'Pull only checks with this tag - Blank for all',
+						'placeholder' => 'Multiple tags using CSV - tag1,tag2'
+					),
+					array(
+						'type' => 'select',
+						'name' => 'homepageHealthChecksRefresh',
+						'label' => 'Refresh Seconds',
+						'value' => $GLOBALS['homepageHealthChecksRefresh'],
+						'options' => optionTime()
+					),
+				),
 			)
 		),
 		array(
@@ -2159,6 +2470,13 @@ function buildHomepageSettings()
 					$class .= ' faded';
 				}
 				break;
+            case 'homepageOrderjdownloader':
+                $class = 'bg-sab';
+                $image = 'plugins/images/tabs/jdownloader.png';
+                if (!$GLOBALS['homepageJdownloaderEnabled']) {
+                    $class .= ' faded';
+                }
+                break;
 			case 'homepageOrdersabnzbd':
 				$class = 'bg-sab';
 				$image = 'plugins/images/tabs/sabnzbd.png';
@@ -2221,7 +2539,21 @@ function buildHomepageSettings()
 			case 'homepageOrderdownloader':
 				$class = 'bg-inverse';
 				$image = 'plugins/images/tabs/downloader.png';
-				if (!$GLOBALS['sabnzbdCombine'] && !$GLOBALS['nzbgetCombine'] && !$GLOBALS['rTorrentCombine'] && !$GLOBALS['delugeCombine'] && !$GLOBALS['transmissionCombine'] && !$GLOBALS['qBittorrentCombine']) {
+				if (!$GLOBALS['jdownloaderCombine'] && !$GLOBALS['sabnzbdCombine'] && !$GLOBALS['nzbgetCombine'] && !$GLOBALS['rTorrentCombine'] && !$GLOBALS['delugeCombine'] && !$GLOBALS['transmissionCombine'] && !$GLOBALS['qBittorrentCombine']) {
+					$class .= ' faded';
+				}
+				break;
+			case 'homepageOrderhealthchecks':
+				$class = 'bg-healthchecks';
+				$image = 'plugins/images/tabs/healthchecks.png';
+				if (!$GLOBALS['homepageHealthChecksEnabled']) {
+					$class .= ' faded';
+				}
+				break;
+			case 'homepageOrderunifi':
+				$class = 'bg-info';
+				$image = 'plugins/images/tabs/ubnt.png';
+				if (!$GLOBALS['homepageUnifiEnabled']) {
 					$class .= ' faded';
 				}
 				break;

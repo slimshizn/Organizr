@@ -2,6 +2,7 @@
 /*global $, jQuery, alert*/
 var idleTime = 0;
 var hasCookie = false;
+var loginAttempts = 0;
 $(document).ajaxComplete(function () {
     pageLoad();
     //new SimpleBar($('.internal-listing')[0]);
@@ -337,6 +338,8 @@ function doneTypingMediaSearch () {
 }
 $(document).on("click", ".login-button", function(e) {
     e.preventDefault;
+    loginAttempts = loginAttempts + 1;
+    $('#login-attempts').val(loginAttempts);
     var check = (local('g','loggingIn'));
     if(check == null) {
         local('s','loggingIn', true);
@@ -358,10 +361,27 @@ $(document).on("click", ".login-button", function(e) {
                 $('div.login-box').unblock({});
                 message('Login Error', ' Wrong username/email/password combo', activeInfo.settings.notifications.position, '#FFF', 'warning', '10000');
                 console.error('Organizr Function: Login failed - wrong username/email/password');
+            } else if (html.data == 'lockout') {
+                $('div.login-box').block({
+                    message: '<h5><i class="fa fa-close"></i> Locked Out!</h4>',
+                    css: {
+                        color: '#fff',
+                        border: '1px solid #e91e63',
+                        backgroundColor: '#f44336'
+                    }
+                });
+                message('Login Error', ' You have been Locked out', activeInfo.settings.notifications.position, '#FFF', 'error', '10000');
+                console.error('Organizr Function: Login failed - User has been locked out');
+                setTimeout(function(){ local('r','loggingIn'); location.reload() }, 10000);
             } else if (html.data == '2FA') {
                 $('div.login-box').unblock({});
                 $('#tfa-div').removeClass('hidden');
-                $('#loginform [name=tfaCode]').focus()
+                $('#loginform [name=tfaCode]').focus();
+            } else if (html.data == '2FA-incorrect') {
+                $('div.login-box').unblock({});
+                $('#tfa-div').removeClass('hidden');
+                $('#loginform [name=tfaCode]').focus();
+                message('Login Error', html.data, activeInfo.settings.notifications.position, '#FFF', 'warning', '10000');
             } else {
                 $('div.login-box').unblock({});
                 message('Login Error', html.data, activeInfo.settings.notifications.position, '#FFF', 'warning', '10000');
@@ -504,20 +524,33 @@ $(document).on("click", ".changeDefaultGroup", function () {
 });
 //DELETE GROUP
 $(document).on("click", ".deleteUserGroup", function () {
-    //Create POST Array
-    var post = {
-        action:'deleteUserGroup',
-        api:'api/?v1/settings/user/manage/groups',
-        id:$(this).parent().parent().attr("data-id"),
-        groupID:$(this).parent().parent().attr("data-group-id"),
-        groupName:$(this).parent().parent().attr("data-group"),
-        messageTitle:'',
-        messageBody:'Deleted User Group '+$(this).parent().parent().attr("data-group"),
-        error:'Organizr Function: User Group API Connection Failed'
-    };
-    var callbacks = $.Callbacks();
-    callbacks.add( buildGroupManagement );
-    settingsAPI(post,callbacks);
+    var group = $(this);
+    swal({
+        title: window.lang.translate('Delete ')+group.parent().parent().attr("data-group")+'?',
+        icon: "warning",
+        buttons: {
+            cancel: window.lang.translate('No'),
+            confirm: window.lang.translate('Yes'),
+        },
+        dangerMode: true,
+        confirmButtonColor: "#DD6B55"
+    }).then(function(willDelete) {
+        if (willDelete) {
+            var post = {
+                action:'deleteUserGroup',
+                api:'api/?v1/settings/user/manage/groups',
+                id:group.parent().parent().attr("data-id"),
+                groupID:group.parent().parent().attr("data-group-id"),
+                groupName:group.parent().parent().attr("data-group"),
+                messageTitle:'',
+                messageBody:'Deleted User Group '+group.parent().parent().attr("data-group"),
+                error:'Organizr Function: User Group API Connection Failed'
+            };
+            var callbacks = $.Callbacks();
+            callbacks.add( buildGroupManagement );
+            settingsAPI(post,callbacks);
+        }
+    });
 });
 //ADD GROUP
 $(document).on("click", ".addNewGroup", function () {
@@ -644,16 +677,15 @@ $(document).on("click", ".deleteUser", function () {
     var user = $(this);
     swal({
         title: window.lang.translate('Delete ')+user.parent().parent().attr("data-username")+'?',
-        type: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#DD6B55",
-        confirmButtonText: window.lang.translate('Yes'),
-        cancelButtonText: window.lang.translate('No'),
-        closeOnConfirm: true,
-        closeOnCancel: true
-    }, function(isConfirm){
-        if (isConfirm) {
-            //Create POST Array
+        icon: "warning",
+        buttons: {
+            cancel: window.lang.translate('No'),
+            confirm: window.lang.translate('Yes'),
+        },
+        dangerMode: true,
+        confirmButtonColor: "#DD6B55"
+    }).then(function(willDelete) {
+        if (willDelete) {
             var post = {
                 action:'deleteUser',
                 api:'api/?v1/settings/user/manage/users',
@@ -668,7 +700,6 @@ $(document).on("click", ".deleteUser", function () {
             settingsAPI(post,callbacks);
         }
     });
-
 });
 // CHANGE TAB GROUP
 $(document).on("change", ".tabGroupSelect", function () {
@@ -817,17 +848,16 @@ $(document).on("change", ".defaultSwitch", function () {
 $(document).on("click", ".deleteTab", function () {
     var user = $(this);
     swal({
-        title: window.lang.translate('Delete ')+user.parent().parent().attr("data-name")+'?',
-        type: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#DD6B55",
-        confirmButtonText: window.lang.translate('Yes'),
-        cancelButtonText: window.lang.translate('No'),
-        closeOnConfirm: true,
-        closeOnCancel: true
-    }, function(isConfirm){
-        if (isConfirm) {
-            //Create POST Array
+        title: window.lang.translate('Delete ') + user.parent().parent().attr("data-name") + '?',
+        icon: "warning",
+        buttons: {
+            cancel: window.lang.translate('No'),
+            confirm: window.lang.translate('Yes'),
+        },
+        dangerMode: true,
+        confirmButtonColor: "#DD6B55"
+    }).then(function(willDelete) {
+        if (willDelete) {
             var post = {
                 action:'deleteTab',
                 api:'api/?v1/settings/tab/editor/tabs',
@@ -1010,16 +1040,15 @@ $(document).on("click", ".deleteCategory", function () {
     var category = $(this);
     swal({
         title: window.lang.translate('Delete ')+category.parent().parent().attr("data-name")+'?',
-        type: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#DD6B55",
-        confirmButtonText: window.lang.translate('Yes'),
-        cancelButtonText: window.lang.translate('No'),
-        closeOnConfirm: true,
-        closeOnCancel: true
-    }, function(isConfirm){
-        if (isConfirm) {
-            //Create POST Array
+        icon: "warning",
+        buttons: {
+            cancel: window.lang.translate('No'),
+            confirm: window.lang.translate('Yes'),
+        },
+        dangerMode: true,
+        confirmButtonColor: "#DD6B55"
+    }).then(function(willDelete) {
+        if (willDelete) {
             var post = {
                 action:'deleteCategory',
                 api:'api/?v1/settings/tab/editor/categories',
@@ -1154,16 +1183,15 @@ $(document).on("click", ".deleteImage", function () {
     var image = $(this);
     swal({
         title: window.lang.translate('Delete ')+image.attr("data-image-name")+'?',
-        type: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#DD6B55",
-        confirmButtonText: window.lang.translate('Yes'),
-        cancelButtonText: window.lang.translate('No'),
-        closeOnConfirm: true,
-        closeOnCancel: true
-    }, function(isConfirm){
-        if (isConfirm) {
-            //Create POST Array
+        icon: "warning",
+        buttons: {
+            cancel: window.lang.translate('No'),
+            confirm: window.lang.translate('Yes'),
+        },
+        dangerMode: true,
+        confirmButtonColor: "#DD6B55"
+    }).then(function(willDelete) {
+        if (willDelete) {
             var post = {
                 action:'deleteImage',
                 api:'api/?v1/settings/image/manager/view',
@@ -1207,16 +1235,15 @@ $(document).on('click', '.disablePlugin', function() {
     var plugin = $(this);
     swal({
         title: window.lang.translate('Disable')+' '+plugin.attr("data-plugin-name")+'?',
-        type: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#DD6B55",
-        confirmButtonText: window.lang.translate('Yes'),
-        cancelButtonText: window.lang.translate('No'),
-        closeOnConfirm: true,
-        closeOnCancel: true
-    }, function(isConfirm){
-        if (isConfirm) {
-            //Create POST Array
+        icon: "warning",
+        buttons: {
+            cancel: window.lang.translate('No'),
+            confirm: window.lang.translate('Yes'),
+        },
+        dangerMode: true,
+        confirmButtonColor: "#DD6B55"
+    }).then(function(willDelete) {
+        if (willDelete) {
             var post = {
                 action:'disable',
                 api:'api/?v1/settings/plugins/list',
@@ -1234,7 +1261,6 @@ $(document).on('click', '.disablePlugin', function() {
             setTimeout(function(){ buildPlugins();ajaxloader(); }, 3000);
         }
     });
-
 });
 // AUTH BACKEND HIDE SHOW
 $(document).on('change', '#authSelect, #authBackendSelect', function(e) {
@@ -1499,15 +1525,13 @@ $(document).on("click", ".refreshImage", function(e) {
             break;
         case 'recent-item':
             var orginalElementAlt = $(this).parent().parent().parent().find('.imageSourceAlt');
-            var orginalElement = $(this).parent().parent().parent().find('.imageSource');
+            var orginalElement = $(this).parent().parent().parent().parent().find('.imageSource');
             orginalElement.attr('style', 'background-image: url("'+original+'");');
             orginalElementAlt.attr('src', original);
             break;
         default:
 
     }
-    //console.log(orginalElement)
-    //console.log('replaced image with : '+original);
     setTimeout(function(){
         message('Image Refreshed ',' Clear Cache Please',activeInfo.settings.notifications.position,'#FFF','success','3000');
     }, 1000);
@@ -1791,6 +1815,19 @@ Mousetrap.bind("d d", function() { toggleDebug() });
 Mousetrap.bind("esc", function () {
     $('.splash-screen').removeClass('in').addClass('hidden')
 });
+Mousetrap.bind('ctrl+shift+up', function(e) {
+    var getCurrentTab = $('.allTabsList a.active').parent();
+    var previousTab = getCurrentTab.prev().children();
+    previousTab.trigger("click");
+    parent.focus();
+    return false;
+});
+Mousetrap.bind('ctrl+shift+down', function(e) {
+    var getCurrentTab = $('.allTabsList a.active').parent();
+    var nextTab = getCurrentTab.next().children();
+    nextTab.trigger("click");
+    return false;
+});
 $(document).on('change', "#new-tab-form-chooseImage", function (e) {
     var newIcon = $('#new-tab-form-chooseImage').val();
     if(newIcon !== 'Select or type Icon'){
@@ -1892,4 +1929,57 @@ $(document).on('click', ".copyDebug", function(){
 $(document).on("keyup", "#authBackendHostPrefix-input, #authBackendHostSuffix-input", function () {
     var newDN = $('#authBackendHostPrefix-input').val() + 'TestAcct' + $('#authBackendHostSuffix-input').val();
     $('#accountDN').html(newDN);
+});
+
+// homepage healthchecks
+$(document).on('click', ".good-health-checks", function(){
+    homepageHealthChecks();
+});
+$(document).on('click', ".showMoreHealth", function(){
+   var id = $(this).attr('data-id');
+    $('.showMoreHealthDiv-'+id).toggleClass('d-none');
+    $(this).find('.card-body').toggleClass('healthPosition');
+});
+//IP INFO
+$(document).on('click', ".ipInfo", function(){
+    $.getJSON("https://ipinfo.io/"+$(this).text()+"/?token=ddd0c072ad5021", function (response) {
+        var region = (typeof response.region == 'undefined') ? ' N/A' : response.region;
+        var ip = (typeof response.ip == 'undefined') ? ' N/A' : response.ip;
+        var hostname = (typeof response.hostname == 'undefined') ? ' N/A' : response.hostname;
+        var loc = (typeof response.loc == 'undefined') ? ' N/A' : response.loc;
+        var org = (typeof response.org == 'undefined') ? ' N/A' : response.org;
+        var city = (typeof response.city == 'undefined') ? ' N/A' : response.city;
+        var country = (typeof response.country == 'undefined') ? ' N/A' : response.country;
+        var phone = (typeof response.phone == 'undefined') ? ' N/A' : response.phone;
+        var div = '<div class="row">' +
+            '<div class="col-lg-12">' +
+            '<div class="white-box">' +
+            '<h3 class="box-title">'+ip+'</h3>' +
+            '<div class="table-responsive">' +
+            '<table class="table">' +
+            '<tbody>' +
+            '<tr><td class="text-left">Hostname</td><td class="txt-oflo text-right">'+hostname+'</td></tr>' +
+            '<tr><td class="text-left">Location</td><td class="txt-oflo text-right">'+loc+'</td></tr>' +
+            '<tr><td class="text-left">Org</td><td class="txt-oflo text-right">'+org+'</td></tr>' +
+            '<tr><td class="text-left">City</td><td class="txt-oflo text-right">'+city+'</td></tr>' +
+            '<tr><td class="text-left">Country</td><td class="txt-oflo text-right">'+country+'</td></tr>' +
+            '<tr><td class="text-left">Phone</td><td class="txt-oflo text-right">'+phone+'</td></tr>' +
+            '<tr><td class="text-left">Region</td><td class="txt-oflo text-right">'+region+'</td></tr>' +
+            '</tbody>' +
+            '</table>' +
+            '</div>' +
+            '</div>' +
+            '</div>' +
+            '</div>';
+        swal({
+            content: createElementFromHTML(div),
+            buttons: false,
+            className: 'bg-org'
+        });
+    });
+});
+
+$(document).on('click', '.allGroupsList', function() {
+    console.log($(this));
+    $(this).toggleClass('active');
 });

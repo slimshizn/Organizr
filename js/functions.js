@@ -13,6 +13,7 @@ lang.init({
 	},
 	allowCookieOverride: true
 });
+var OAuthLoginNeeded = false;
 var timeouts = {};
 var increment = 0;
 var tabInformation = {};
@@ -22,6 +23,9 @@ tabActionsList['close'] = [];
 
 // Start Organizr
 $(document).ready(function () {
+    if(getCookie('organizrOAuth')){
+        OAuthLoginNeeded = true
+    }
     launch();
     local('r','loggingIn');
 });
@@ -521,6 +525,9 @@ function swapBodyClass(tab){
     $('body').attr('data-active-tab', tab);
     $('body').addClass('active-tab-'+tab);
 }
+function editPageTitle(title){
+    document.title =  title + ' - ' + activeInfo.appearance.title;
+}
 function switchTab(tab, type){
     if(type !== 2){
         hideFrames();
@@ -540,6 +547,7 @@ function switchTab(tab, type){
 			var newTab = $('#internal-'+tab);
 			var tabURL = newTab.attr('data-url');
 			$('#menu-'+cleanClass(tab)).find('a').addClass("active");
+            editPageTitle(tab);
 			if(newTab.hasClass('loaded')){
 				console.log('Tab Function: Switching to tab: '+tab);
 				newTab.addClass("show").removeClass('hidden');
@@ -562,6 +570,7 @@ function switchTab(tab, type){
 			var newTab = $('#container-'+tab);
 			var tabURL = newTab.attr('data-url');
 			$('#menu-'+cleanClass(tab)).find('a').addClass("active");
+            editPageTitle(tab);
 			if(newTab.hasClass('loaded')){
 				console.log('Tab Function: Switching to tab: '+tab);
 				newTab.addClass("show").removeClass('hidden');
@@ -675,7 +684,10 @@ function reloadTab(tab, type){
 		case 0:
 		case '0':
 		case 'internal':
-
+		    var dataURL = $('.frame-'+cleanClass(tab)).attr('data-url');
+		    var dataName = $('.frame-'+cleanClass(tab)).attr('data-name');
+            $('#frame-'+cleanClass(tab)).html('');
+            loadInternal(dataURL,dataName);
 			break;
 		case 1:
 		case '1':
@@ -738,6 +750,10 @@ function loadNextTab(){
 	var next = $('#page-wrapper').find('.loaded').attr('data-name');
 	if (typeof next !== 'undefined') {
 		var type = $('#page-wrapper').find('.loaded').attr('data-type');
+        var parent = $('#menu-'+next).parent();
+        if(parent.hasClass('in') === false){
+            parent.parent().find('a').first().trigger('click')
+        }
 		switchTab(next,type);
 	}else{
 		console.log("Tab Function: No Available Tab to open");
@@ -799,15 +815,17 @@ function closeCurrentTab(){
 	}
 }
 function tabActions(event,name, type){
-    $('.splash-screen').removeClass('in').addClass('hidden');
-	if(event.ctrlKey){
+	if(event.ctrlKey && !event.shiftKey && !event.altKey){
 		popTab(cleanClass(name), type);
-	}else if(event.altKey){
+	}else if(event.altKey && !event.shiftKey && !event.ctrlKey){
         closeTab(name);
-	}else if(event.shiftKey){
+	}else if(event.shiftKey && !event.ctrlKey && !event.altKey){
 		reloadTab(cleanClass(name), type);
-	}else{
+	}else if(event.ctrlKey && event.shiftKey && !event.altKey){
+        switchTab(cleanClass(name), type);
+    }else{
 		switchTab(cleanClass(name), type);
+        $('.splash-screen').removeClass('in').addClass('hidden');
 	}
 }
 function reverseObject(object) {
@@ -949,7 +967,8 @@ function buildFormItem(item){
 			return smallLabel+'<select class="form-control'+extraClass+'"'+placeholder+value+id+name+disabled+type+attr+'>'+selectOptions(item.options, item.value)+'</select>';
 			break;
 		case 'select2':
-			return smallLabel+'<select class="m-b-10 '+extraClass+'"'+placeholder+value+id+name+disabled+type+attr+' multiple="multiple" data-placeholder="Choose">'+selectOptions(item.options, item.value)+'</select>';
+            var select2ID = (item.id) ? '#'+item.id : '.'+item.name;
+            return smallLabel+'<select class="m-b-10 '+extraClass+'"'+placeholder+value+id+name+disabled+type+attr+' multiple="multiple" data-placeholder="Choose">'+selectOptions(item.options, item.value)+'</select><script>$("'+select2ID+'").select2();</script>';
 			break;
 		case 'switch':
 		case 'checkbox':
@@ -986,7 +1005,7 @@ function buildPluginsItem(array){
                 </div>
                 <div class="panel-wrapper collapse in" aria-expanded="true">
                     <div class="panel-body bg-org">
-                    <fieldset id="`+v.idPrefix+`-settings-items" style="border:0;" class=""></fieldset>
+                        <fieldset id="`+v.idPrefix+`-settings-items" style="border:0;" class=""><h2>Loading...</h2></fieldset>
                     </div>
                     <div class="clearfix"></div>
                 </div>
@@ -1173,7 +1192,7 @@ function loadMarketplaceThemesItems(themes){
                 <td>`+v.category+`</td>
                 <td>`+v.status+`</td>
                 <td style="text-align:center"><button type="button" onclick='aboutTheme(`+JSON.stringify(v)+`);' class="btn btn-success btn-outline btn-circle btn-lg popup-with-form" href="#about-theme-form" data-effect="mfp-3d-unfold"><i class="fa fa-info"></i></button></td>
-                <td style="text-align:center"><button type="button" onclick='installTheme(`+JSON.stringify(v)+`);' class="btn btn-info btn-outline btn-circle btn-lg"><i class="`+installButton+`"></i></button></td>
+                <td style="text-align:center"><button type="button" onclick='installTheme(`+JSON.stringify(v)+`);themeAnalytics("`+ v.name +`");' class="btn btn-info btn-outline btn-circle btn-lg"><i class="`+installButton+`"></i></button></td>
                 <td style="text-align:center"><button type="button" onclick='removeTheme(`+JSON.stringify(v)+`);' class="btn btn-danger btn-outline btn-circle btn-lg" `+removeButton+`><i class="fa fa-trash"></i></button></td>
             </tr>
         `;
@@ -1473,7 +1492,6 @@ function installTheme(theme=null){
             orgErrorAlert('<h4>' + e + '</h4>' + formatDebug(data));
             return false;
         }
-        console.log(data);
         if(html.data.substr(0, 7) == 'Success'){
             var newThemes = html.data.split('!@!');
             activeInfo.settings.misc.installedThemes = newThemes[1];
@@ -1682,8 +1700,8 @@ function buildImageManagerViewItem(array){
 						<div class="el-card-avatar el-overlay-1"> <img class="lazyload tabImages" data-src="`+v+`" width="22" height="22">
 							<div class="el-overlay">
 								<ul class="el-info">
-									<li><a class="btn default btn-outline clipboard p-5" data-clipboard-text="`+clipboardText+`" href="javascript:void(0);"><i class="ti-clipboard"></i></a></li>
-									<li><a class="btn default btn-outline deleteImage p-5" href="javascript:void(0);" data-image-path="`+v+`" data-image-name="`+name[0]+`"><i class="icon-trash"></i></a></li>
+									<li><a class="btn default btn-outline clipboard p-a-5" data-clipboard-text="`+clipboardText+`" href="javascript:void(0);"><i class="ti-clipboard"></i></a></li>
+									<li><a class="btn default btn-outline deleteImage p-a-5" href="javascript:void(0);" data-image-path="`+v+`" data-image-name="`+name[0]+`"><i class="icon-trash"></i></a></li>
 								</ul>
 							</div>
 						</div>
@@ -1835,9 +1853,90 @@ function buildTabEditor(){
             return false;
         }
 		$('#tabEditorTable').html(buildTabEditorItem(response.data));
+        loadSettingsPage('api/?v1/settings/tab/editor/homepage','#settings-tab-editor-homepage','Homepage Items');
+        setTimeout(function(){ sortHomepageItemHrefs() }, 1000);
+        setTimeout(function(){ checkTabHomepageItems(); }, 1500);
+
+
 	}).fail(function(xhr) {
 		console.error("Organizr Function: API Connection Failed");
 	});
+}
+function checkTabHomepageItems(){
+    var tabList = $('.checkTabHomepageItem');
+    $.each(tabList, function(i,v) {
+        var el = $(v);
+        var id = el.attr('id');
+        var name = el.attr('data-name');
+        var url = el.attr('data-url');
+        var urlLocal = el.attr('data-url-local');
+        checkTabHomepageItem(id, name, url, urlLocal);
+    });
+}
+function sortHomepageItemHrefs(){
+    var hrefList = $('.popup-with-form');
+    window.hrefList = new Array();
+    $.each(hrefList, function(i,v) {
+        var el = $(v);
+        var href = el.attr('href');
+        if(href.includes('#homepage-')){
+            var splitHref = href.split("-");
+            window.hrefList[splitHref[1]] = i;
+        }
+    });
+}
+function checkTabHomepageItem(id, name, url, urlLocal){
+    name = name.toLowerCase();
+    url = url.toLowerCase();
+    urlLocal = urlLocal.toLowerCase();
+    if(name.includes('sonarr') || url.includes('sonarr') || urlLocal.includes('sonarr')){
+        addEditHomepageItem(id,'Sonarr');
+    }else if(name.includes('radarr') || url.includes('radarr') || urlLocal.includes('radarr')){
+        addEditHomepageItem(id,'Radarr');
+    }else if(name.includes('lidarr') || url.includes('lidarr') || urlLocal.includes('lidarr')){
+        addEditHomepageItem(id,'Lidarr');
+    }else if(name.includes('couchpotato') || url.includes('couchpotato') || urlLocal.includes('couchpotato')){
+        addEditHomepageItem(id,'CouchPotato');
+    }else if(name.includes('sick') || url.includes('sick') || urlLocal.includes('sick')){
+        addEditHomepageItem(id,'SickRage');
+    }else if((name.includes('plex') || url.includes('plex') || urlLocal.includes('plex')) && !name.includes('plexpy')){
+        addEditHomepageItem(id,'Plex');
+    }else if(name.includes('emby') || url.includes('emby') || urlLocal.includes('emby')){
+        addEditHomepageItem(id,'Emby');
+    }else if(name.includes('jdownloader') || url.includes('jdownloader') || urlLocal.includes('jdownloader') || name.includes('rsscrawler') || url.includes('rsscrawler') || urlLocal.includes('rsscrawler')){
+        addEditHomepageItem(id,'jDownloader');
+    }else if(name.includes('sab') || url.includes('sab') || urlLocal.includes('sab')){
+        addEditHomepageItem(id,'SabNZBD');
+    }else if(name.includes('nzbget') || url.includes('nzbget') || urlLocal.includes('nzbget')){
+        addEditHomepageItem(id,'NZBGet');
+    }else if(name.includes('transmission') || url.includes('transmission') || urlLocal.includes('transmission')){
+        addEditHomepageItem(id,'Transmission');
+    }else if(name.includes('qbit') || url.includes('qbit') || urlLocal.includes('qbit')){
+        addEditHomepageItem(id,'qBittorrent');
+    }else if(name.includes('rtorrent') || url.includes('rtorrent') || urlLocal.includes('rtorrent')){
+        addEditHomepageItem(id,'rTorrent');
+    }else if(name.includes('deluge') || url.includes('deluge') || urlLocal.includes('deluge')){
+        addEditHomepageItem(id,'Deluge');
+    }else if(name.includes('ombi') || url.includes('ombi') || urlLocal.includes('ombi')){
+        addEditHomepageItem(id,'Ombi');
+    }else if(name.includes('healthcheck') || url.includes('healthcheck') || urlLocal.includes('healthcheck')){
+        addEditHomepageItem(id,'HealthChecks');
+    }
+}
+function addEditHomepageItem(id, type){
+    var html = '';
+    var process = false;
+    if(type in window.hrefList){
+        html = '<i class="ti-home"></i>';
+        process = true;
+    }
+    if(html !== ''){
+        $('#'+id).html(html);
+    }
+    if(process){
+        $('#'+id).attr('onclick', "$('.popup-with-form').magnificPopup('open',"+window.hrefList[type]+")");
+    }
+    return false;
 }
 function buildCategoryEditor(){
 	organizrAPI('GET','api/?v1/tab/list').success(function(data) {
@@ -2319,12 +2418,12 @@ function accountManager(user){
                                                                     <label class="control-label" lang="en">Email</label>
                                                                     <input `+twoFADisable+` type="text" id="accountEmail" class="form-control" value="`+activeInfo.user.email+`"></div>
                                                             </div>
-                                                            <div class="col-md-6">
+                                                            <div class="col-md-6 userManagementPassword">
                                                                 <div class="form-group">
                                                                     <label class="control-label" lang="en">Password</label>
                                                                     <input type="password" id="accountPassword1" class="form-control"></div>
                                                             </div>
-                                                            <div class="col-md-6">
+                                                            <div class="col-md-6 userManagementPassword">
                                                                 <div class="form-group">
                                                                     <label class="control-label" lang="en">Verify Password</label>
                                                                     <input type="password" id="accountPassword2" class="form-control"></div>
@@ -2424,7 +2523,7 @@ function categoryProcess(arrayItems){
 		$.each(arrayItems['data']['categories'], function(i,v) {
 			if(v.count !== 0 && v.category_id !== 0){
 				menuList += `
-					<li>
+					<li class="allGroupsList" data-group-name="`+cleanClass(v.category)+`">
 						<a class="waves-effect" href="javascript:void(0)">`+iconPrefix(v.image)+`<span class="hide-menu">`+v.category+` <span class="fa arrow"></span> <span class="label label-rouded label-inverse pull-right">`+v.count+`</span></span><div class="menu-category-ping" data-good="0" data-bad="0"></div></a>
 						<ul class="nav nav-second-level category-`+v.category_id+` collapse"></ul>
 					</li>
@@ -2435,8 +2534,11 @@ function categoryProcess(arrayItems){
 	}
 }
 function buildFrame(name,url){
+    var sandbox = activeInfo.settings.misc.sandbox;
+    sandbox = sandbox.replace(/,/gi, ' ');
+    sandbox = (sandbox) ? ' sandbox="' + sandbox + '"' : '';
 	return `
-		<iframe allowfullscreen="true" frameborder="0" id="frame-`+cleanClass(name)+`" data-name="`+cleanClass(name)+`" sandbox="allow-presentation allow-forms allow-same-origin allow-pointer-lock allow-scripts allow-popups allow-modals allow-top-navigation" scrolling="auto" src="`+url+`" class="iframe"></iframe>
+		<iframe allowfullscreen="true" frameborder="0" id="frame-`+cleanClass(name)+`" data-name="`+cleanClass(name)+`" `+sandbox+` scrolling="auto" src="`+url+`" class="iframe"></iframe>
 	`;
 }
 function buildFrameContainer(name,url,type){
@@ -2445,10 +2547,10 @@ function buildFrameContainer(name,url,type){
 function buildInternalContainer(name,url,type){
 	return `<div id="internal-`+cleanClass(name)+`" data-type="`+type+`" class="internal-container frame-`+cleanClass(name)+` hidden" data-url="`+url+`" data-name="`+cleanClass(name)+`"></div>`;
 }
-function buildMenuList(name,url,type,icon,ping=null){
+function buildMenuList(name,url,type,icon,ping=null,category_id = null,group_id = null){
     var ping = (ping !== null) ? `<small class="menu-`+cleanClass(ping)+`-ping-ms hidden-xs label label-rouded label-inverse pull-right pingTime hidden">
 </small><div class="menu-`+cleanClass(ping)+`-ping" data-tab-name="`+name+`" data-previous-state=""></div>` : '';
-	return `<li class="allTabsList" id="menu-`+cleanClass(name)+`" data-tab-name="`+cleanClass(name)+`" type="`+type+`" data-url="`+url+`"><a class="waves-effect" onclick="tabActions(event,'`+cleanClass(name)+`',`+type+`);">`+iconPrefix(icon)+`<span class="hide-menu elip sidebar-tabName">`+name+`</span>`+ping+`</a></li>`;
+	return `<li class="allTabsList" id="menu-`+cleanClass(name)+`" data-tab-name="`+cleanClass(name)+`" type="`+type+`" data-group-id="`+group_id+`" data-category-id="`+category_id+`" data-url="`+url+`"><a class="waves-effect"  onclick="tabActions(event,'`+cleanClass(name)+`',`+type+`);">`+iconPrefix(icon)+`<span class="hide-menu elip sidebar-tabName">`+name+`</span>`+ping+`</a></li>`;
 }
 function tabProcess(arrayItems) {
 	var iFrameList = '';
@@ -2475,7 +2577,7 @@ function tabProcess(arrayItems) {
                     defaultTabName = cleanClass(v.name);
                     defaultTabType = v.type;
                 }
-                var menuList = buildMenuList(v.name,v.access_url,v.type,v.image,v.ping_url);
+                var menuList = buildMenuList(v.name,v.access_url,v.type,v.image,v.ping_url, v.category_id, v.group_id);
                 if(v.category_id === 0){
                     if(activeInfo.settings.misc.unsortedTabs === 'top'){
                         $(menuList).prependTo($('#side-menu'));
@@ -2824,7 +2926,7 @@ function buildTabEditorItem(array){
 					</div>
 				</div>
 			</td>
-			<td><span class="tooltip-info" data-toggle="tooltip" data-placement="right" title="" data-original-title="`+v.url+`">`+v.name+`</span></td>
+			<td><span class="tooltip-info" data-toggle="tooltip" data-placement="right" title="" data-original-title="`+v.url+`">`+v.name+`</span><span id="checkTabHomepageItem-`+v.id+`" data-url="`+v.url+`" data-url-local="`+v.url_local+`" data-name="`+v.name+`" class="checkTabHomepageItem mouse label label-rouded label-inverse pull-right"></span></td>
 			`+buildTabCategorySelect(array.categories,v.id, v.category_id)+`
 			`+buildTabGroupSelect(array.groups,v.id, v.group_id)+`
 			`+buildTabTypeSelect(v.id, v.type, typeDisabled)+`
@@ -2856,7 +2958,7 @@ function submitSettingsForm(form){
                     var value = input.prop("checked") ? true : false;
                     break;
 				case 'select2':
-                    var value = input.val().toString();
+                    var value = (input.val() !== null) ? input.val().toString() : '';
                     break;
                 default:
                     var value = input.val();
@@ -2922,11 +3024,11 @@ function submitHomepageOrder(){
 	    console.log('add error');
 	}
 }
-function submitTabOrder(){
+function submitTabOrder(newTabs){
 	var post = {
 		action:'changeOrder',
 		api:'api/?v1/settings/tab/editor/tabs',
-		tabs:$( "#submit-tabs-form" ).serializeToJSON(),
+		tabs:newTabs,
 		messageTitle:'',
 		messageBody:window.lang.translate('Tab Order Saved'),
 		error:'Organizr Function: API Connection Failed'
@@ -2966,7 +3068,7 @@ function buildTR(array,type,badge){
 }
 function buildVersion(array){
 	var x = 0;
-	var versions = '<h3 class="p-l-10 m-b-0 box-title" lang="en">Organizr Versions</h3>';
+	var versions = '<div class="col-md-3 col-sm-4 col-xs-6 m-b-10 pull-right"><button onclick="manualUpdateCheck()" class="btn btn-sm btn-primary btn-rounded waves-effect waves-light pull-right row b-none buttonManualUpdateCheck" type="button"><span class="btn-label"><i class="fa fa-globe"></i></span><span lang="en">Check For Updates</span></button></div><div class="clearfix"></div>';
 	var listing = '';
 	var currentV = currentVersion;
 	var installed = '';
@@ -3037,6 +3139,16 @@ function loadSettingsPage(api,element,organizrFn){
 		console.error("Organizr Function: API Connection Failed");
 	});
 }
+function manualUpdateCheck(){
+    $('.buttonManualUpdateCheck').addClass('disabled');
+    $('.buttonManualUpdateCheck i').removeClass('fa-globe').addClass('fa-refresh fa-spin');
+    setTimeout(function(){ updateCheck(); checkCommitLoad(); }, 1000);
+    setTimeout(function(){
+        $('.buttonManualUpdateCheck').removeClass('disabled');
+        $('.buttonManualUpdateCheck i').removeClass('fa-refresh fa-spin fa-globe').addClass('fa-check');
+     }, 1500);
+    return true;
+}
 function updateCheck(){
 	githubVersions().success(function(data) {
         try {
@@ -3053,7 +3165,7 @@ function updateCheck(){
 		if(latest !== currentVersion) {
             console.log('Update Function: Update to ' + latest + ' is available');
             if (activeInfo.settings.misc.docker === false) {
-                message(window.lang.translate('Update Available'), latest + ' ' + window.lang.translate('is available, goto') + ' <a href="javascript:void(0)" onclick="tabActions(event,\'Settings\',0);clickPath(\'update\')"><span lang="en">Update Tab</span></a>', activeInfo.settings.notifications.position, '#FFF', 'update', '60000');
+                messageSingle(window.lang.translate('Update Available'), latest + ' ' + window.lang.translate('is available, goto') + ' <a href="javascript:void(0)" onclick="tabActions(event,\'Settings\',0);clickPath(\'update\')"><span lang="en">Update Tab</span></a>', activeInfo.settings.notifications.position, '#FFF', 'update', '60000');
             }
         }
 		$('#githubVersions').html(buildVersion(reverseObject(response)));
@@ -3098,7 +3210,7 @@ function checkCommitLoad(){
                 var current = activeInfo.settings.misc.githubCommit.toString().trim();
                 var link = 'https://github.com/causefx/Organizr/compare/'+current+'...'+latest;
                 if(latest !== current) {
-                    message(window.lang.translate('Update Available'),' <a href="'+link+'" target="_blank"><span lang="en">Compare Difference</span></a> <span lang="en">or</span> <a href="javascript:void(0)" onclick="updateNow()"><span lang="en">Update Now</span></a>', activeInfo.settings.notifications.position, '#FFF', 'update', '600000');
+                    messageSingle(window.lang.translate('Update Available'),' <a href="'+link+'" target="_blank"><span lang="en">Compare Difference</span></a> <span lang="en">or</span> <a href="javascript:void(0)" onclick="updateNow()"><span lang="en">Update Now</span></a>', activeInfo.settings.notifications.position, '#FFF', 'update', '600000');
                 }else{
                     console.log('Organizr Docker - Up to date');
                 }
@@ -3147,8 +3259,9 @@ function sponsorAbout(id,array){
     var coupon = (array.coupon == null) ? false : true;
     var couponAbout = (array.coupon_about == null) ? false : true;
     var extraInfo = (coupon && couponAbout) ? `
-        <br><span class="label label-rouded label-info pull-right">`+array.coupon+`</span>
-        <br><span class="mail-desc">`+array.coupon_about+`</span>
+        <h3>Coupon Code:</h3>
+        <p><span class="label label-rouded label-info pull-right">`+array.coupon+`</span>
+        <span class=" pull-left">`+array.coupon_about+`</span></p>
     ` : '';
     return `
         <!--  modal content -->
@@ -3184,15 +3297,24 @@ function sponsorAbout(id,array){
 function buildSponsor(array){
     var sponsors = '';
     $.each(array, function(i,v) {
-        var sponsorAboutModal = (v.about) ? 'data-toggle="modal" data-target="#sponsor-'+i+'-modal"' : 'onclick="window.open(\''+ v.website +'\', \'_blank\')"';
+        var hasCoupon = '';
+        if(v.about){
+            if(v.coupon){
+                hasCoupon = `
+                    <span class="text-center has-coupon-text">Has Coupon</span>
+                    <span class="text-center has-coupon"><i class="fa fa-ticket" aria-hidden="true"></i></span>
+                `;
+            }
+        }
+        var sponsorAboutModal = (v.about) ? 'data-toggle="modal" data-target="#sponsor-'+i+'-modal" onclick="sponsorAnalytics(\''+v.company_name+'\');"' : 'onclick="window.open(\''+ v.website +'\', \'_blank\');sponsorAnalytics(\''+v.company_name+'\');"';
         sponsors += `
             <!-- /.usercard -->
             <div class="item lazyload recent-sponsor mouse imageSource mouse" `+sponsorAboutModal+` data-src="`+v.logo+`">
                 <span class="elip recent-title">`+v.company_name+`</span>
+                `+ hasCoupon +`
             </div>
             <!-- /.usercard-->
         `;
-
     });
     sponsors += `
         <!-- /.usercard -->
@@ -3211,6 +3333,46 @@ function buildSponsorModal(array){
 
     });
     return sponsors;
+}
+function sponsorAnalytics(sponsor_name){
+    var uuid = activeInfo.settings.misc.uuid;
+    $.ajax({
+        type: 'POST',
+        url: 'https://api.organizr.app/',
+        data: {
+            'sponsor_name': sponsor_name,
+            'user_uuid': uuid,
+            'cmd': 'sponsor'
+        },
+        cache: false,
+        async: true,
+        complete: function(xhr, status) {
+            if (xhr.status === 200) {
+                var result = $.parseJSON(xhr.responseText);
+                console.log(result.response.message);
+            }
+        }
+    });
+}
+function themeAnalytics(theme_name){
+    var uuid = activeInfo.settings.misc.uuid;
+    $.ajax({
+        type: 'POST',
+        url: 'https://api.organizr.app/',
+        data: {
+            'theme_name': theme_name,
+            'user_uuid': uuid,
+            'cmd': 'theme'
+        },
+        cache: false,
+        async: true,
+        complete: function(xhr, status) {
+            if (xhr.status === 200) {
+                var result = $.parseJSON(xhr.responseText);
+                console.log(result.response.message);
+            }
+        }
+    });
 }
 function updateBar(){
 	return `
@@ -3288,6 +3450,10 @@ function updateNow(){
     clearAJAX();
     if(activeInfo.settings.misc.docker){
         dockerUpdate();
+        return false;
+    }
+    if(activeInfo.serverOS === 'win'){
+        windowsUpdate();
         return false;
     }
 	console.log('Organizr Function: Starting Update Process');
@@ -3375,10 +3541,11 @@ function organizrAPI(type,path,data=null){
 	var timeout = 10000;
     switch(path){
         case 'api/?v1/windows/update':
+        case 'api/?v1/docker/update':
             timeout = 120000;
             break;
         default:
-            timeout = 10000;
+            timeout = 60000;
     }
 	switch (type) {
 		case 'get':
@@ -3732,12 +3899,12 @@ function loadAppearance(appearance){
 	if(appearance.loginWallpaper !== ''){
 		cssSettings += `
 		    .login-register {
-			    background: url(`+appearance.loginWallpaper+`) center center/cover no-repeat!important;
+			    background: url(`+randomCSV(appearance.loginWallpaper)+`) center center/cover no-repeat!important;
 			    height: 100%;
 			    position: fixed;
 		    }
 			.lock-screen {
-				background: url(`+appearance.loginWallpaper+`) center center/cover no-repeat!important;
+				background: url(`+randomCSV(appearance.loginWallpaper)+`) center center/cover no-repeat!important;
 			    height: 100%;
 			    position: fixed;
 			    z-index: 1001;
@@ -3760,6 +3927,18 @@ function loadAppearance(appearance){
     if(appearance.customCss !== ''){
         $('#custom-css').html(appearance.customCss);
     }
+}
+function randomCSV(values){
+    if(typeof values == 'string'){
+        if(values.includes(',')){
+            var csv = values.split(',');
+            var luckyNumber = Math.floor(Math.random() * csv.length);
+            return csv[luckyNumber];
+        }else{
+            return values;
+        }
+    }
+    return false;
 }
 function loadCustomJava(appearance){
     if(appearance.customThemeJava !== ''){
@@ -3846,6 +4025,15 @@ function errorPage(error=null,uri=null){
         local('set','uri',$.urlParam('return'));
     }
 	if ( window.location !== window.parent.location ) {
+        var count = 0;
+        for (var k in window.parent.location) {
+            if (window.parent.location.hasOwnProperty(k)) {
+                ++count;
+            }
+        }
+        if(count == 0 || count == 'undefined'){
+            return false;
+        }
 		var iframeError = local('get', 'error');
 		parent.errorPage(iframeError);
         local('remove', 'uri');
@@ -4033,7 +4221,9 @@ function buildRecentItem(array, type, extra=null){
 			<div class="item lazyload `+className+` metadata-get mouse imageSource" data-source="`+type+`" data-key="`+v.metadataKey+`" data-uid="`+v.uid+`" data-src="`+v.imageURL+`">
 				`+extraImg+`
 				<div class="hover-homepage-item">
-					<a class="btn default refreshImage" data-type="recent-item" data-image="`+v.originalImage+`" href="javascript:void(0);"><i class="mdi mdi-refresh mdi-24px"></i></a>
+				    <span class="elip request-title-movie">
+					    <a class="text-white refreshImage" data-type="recent-item" data-image="`+v.originalImage+`" href="javascript:void(0);"><i class="mdi mdi-refresh mdi-24px"></i></a>
+					</span>
 				</div>
 				<span class="elip recent-title">`+v.title+`<br/>`+v.secondaryTitle+`</span>
 				<div id="`+v.uid+`-metadata-div" class="white-popup mfp-with-anim mfp-hide">
@@ -4058,7 +4248,9 @@ function buildPlaylistItem(array, type, extra=null){
 				items += `
 				<div class="item lazyload recent-poster metadata-get mouse imageSource" data-source="`+type+`" data-key="`+v.metadataKey+`" data-uid="`+v.uid+`" data-src="`+v.imageURL+`">
 					<div class="hover-homepage-item">
-						<a class="btn default refreshImage" data-type="recent-item" data-image="`+v.originalImage+`" href="javascript:void(0);"><i class="mdi mdi-refresh mdi-24px"></i></a>
+					    <span class="elip request-title-movie">
+						    <a class="text-white refreshImage" data-type="recent-item" data-image="`+v.originalImage+`" href="javascript:void(0);"><i class="mdi mdi-refresh mdi-24px"></i></a>
+						</span>
 					</div>
 					<span class="elip recent-title">`+v.title+`</span>
 					<div id="`+v.uid+`-metadata-div" class="white-popup mfp-with-anim mfp-hide">
@@ -4193,7 +4385,7 @@ function buildStream(array, type){
 	<div id="`+type+`Streams">
 		<div class="el-element-overlay row">
 		    <div class="col-md-12">
-		        <h4 class="pull-left"><span lang="en">Active</span> `+toUpper(type)+` <span lang="en">Streams</span>: </h4><h4 class="pull-left">&nbsp;<span class="label label-info m-l-20 checkbox-circle">`+streams+`</span></h4>
+		        <h4 class="pull-left"><span lang="en">Active</span> `+toUpper(type)+` <span lang="en">Streams</span>: </h4><h4 class="pull-left">&nbsp;<span class="label label-info m-l-20 checkbox-circle mouse" onclick="homepageStream('`+type+`')">`+streams+`</span></h4>
 		        <hr class="hidden-xs">
 		    </div>
 			<div class="clearfix"></div>
@@ -4235,15 +4427,16 @@ function buildRecent(array, type){
 	if(activeInfo.settings.homepage.options.alternateHomepageHeaders){
 		var headerAlt = `
 		<div class="col-md-12">
-			<h4 class="pull-left"><span lang="en">Recently Added</span></h4>
+			<h4 class="pull-left"><span class="mouse" onclick="homepageRecent('`+type+`')" lang="en">Recently Added</span></h4>
 			`+dropdownMenu+`
 			<hr class="hidden-xs"><div class="clearfix"></div>
 		</div>
+		<div class="clearfix"></div>
 		`;
 	}else{
 		var header = `
 		<div class="panel-heading bg-info p-t-10 p-b-10">
-			<span class="pull-left m-t-5"><img class="lazyload homepageImageTitle" data-src="plugins/images/tabs/`+type+`.png"> &nbsp; <span lang="en">Recently Added</span></span>
+			<span onclick="homepageRecent('`+type+`')" class="pull-left m-t-5 mouse"><img class="lazyload homepageImageTitle" data-src="plugins/images/tabs/`+type+`.png"> &nbsp; <span lang="en">Recently Added</span></span>
 			`+dropdownMenu+`
 			<div class="clearfix"></div>
 		</div>
@@ -4329,17 +4522,18 @@ function buildPlaylist(array, type){
 	if(activeInfo.settings.homepage.options.alternateHomepageHeaders){
 		var headerAlt = `
 		<div class="col-md-12">
-			<h4 class="pull-left"><span class="`+type+`-playlistTitle">`+first+`</span></h4>
+			<h4 class="pull-left"><span onclick="homepagePlaylist('`+type+`')" class="`+type+`-playlistTitle mouse">`+first+`</span></h4>
 			<div class="btn-group pull-right">
 				`+builtDropdown+`
 			</div>
 			<hr class="hidden-xs"><div class="clearfix"></div>
 		</div>
+		<div class="clearfix"></div>
 		`;
 	}else{
 		var header = `
 		<div class="panel-heading bg-info p-t-10 p-b-10">
-			<span class="pull-left m-t-5"><img class="lazyload homepageImageTitle" data-src="plugins/images/tabs/`+type+`.png"> &nbsp; <span class="`+type+`-playlistTitle">`+first+`</span></span>
+			<span class="pull-left m-t-5 mouse" onclick="homepagePlaylist('`+type+`')"><img class="lazyload homepageImageTitle" data-src="plugins/images/tabs/`+type+`.png"> &nbsp; <span class="`+type+`-playlistTitle">`+first+`</span></span>
 			<div class="btn-group pull-right">
 					`+builtDropdown+`
 			</div>
@@ -4411,17 +4605,18 @@ function buildRequest(array){
 	if(activeInfo.settings.homepage.options.alternateHomepageHeaders){
 		var headerAlt = `
 		<div class="col-md-12">
-			<h4 class="pull-left"><span lang="en">Requests</span></h4>
+			<h4 class="pull-left"><span class="mouse" onclick="homepageRequests()" lang="en">Requests</span></h4>
 			<div class="btn-group pull-right">
 				`+builtDropdown+`
 			</div>
 			<hr class="hidden-xs"><div class="clearfix"></div>
 		</div>
+		<div class="clearfix"></div>
 		`;
 	}else{
 		var header = `
 		<div class="panel-heading bg-info p-t-10 p-b-10">
-			<span class="pull-left m-t-5"><img class="lazyload homepageImageTitle" data-src="plugins/images/tabs/ombi.png"> &nbsp; Requests</span>
+			<span class="pull-left m-t-5 mouse" onclick="homepageRequests()"><img class="lazyload homepageImageTitle" data-src="plugins/images/tabs/ombi.png"> &nbsp; Requests</span>
 			<div class="btn-group pull-right">
 					`+builtDropdown+`
 			</div>
@@ -4544,7 +4739,7 @@ function buildRequestResult(array,media_type=null,list=null,page=null,search=fal
 	                <div class="el-card-item p-b-0">
 	                    <div class="el-card-avatar el-overlay-1 m-b-5 preloader-`+v.id+`"> <img class="lazyload resultImages" data-src="`+bg+`">
 	                        <div class="el-overlay">
-								<span class="text-info p-5 font-normal">`+comment+`</span>
+								<span class="text-info p-a-5 font-normal">`+comment+`</span>
 	                            <ul class="el-info">
 	                                <li><a class="btn default btn-outline" href="javascript:void(0);" onclick="processRequest('`+v.id+`','`+media_type+`');"><i class="icon-link"></i>&nbsp; <span lang="en">Request</span></a></li>
 	                                <li><a class="btn default btn-outline" href="https://www.themoviedb.org/`+media_type+`/`+v.id+`" target="_blank"><i class="icon-info"></i></a></li>
@@ -4729,10 +4924,118 @@ function requestList (list, type, page=1) {
 function buildDownloaderItem(array, source, type='none'){
     //console.log(array);
     var queue = '';
-    var history = '';
     var count = 0;
+    var history = '';
 	switch (source) {
+        case 'jdownloader':
+            if(array.content === false){
+                queue = '<tr><td class="max-texts" lang="en">Connection Error to ' + source + '</td></tr>';
+                break;
+            }
+
+            if(array.content.queueItems.length == 0 && array.content.grabberItems.length == 0 && array.content.encryptedItems.length == 0 && array.content.offlineItems.length == 0){
+                queue = '<tr><td class="max-texts" lang="en">Nothing in queue</td></tr>';
+            }else{
+                if(array.content.$status[0] == 'RUNNING') {
+                    queue += `
+                        <tr><td>
+                            <a href="#"><span class="downloader mouse" data-source="jdownloader" data-action="pause" data-target="main"><i class="fa fa-pause"></i></span></a>
+                            <a href="#"><span class="downloader mouse" data-source="jdownloader" data-action="stop" data-target="main"><i class="fa fa-stop"></i></span></a>
+                        </td></tr>
+                        `;
+                }else if(array.content.$status[0] == 'PAUSE'){
+                    queue += `<tr><td><a href="#"><span class="downloader mouse" data-source="jdownloader" data-action="resume" data-target="main"><i class="fa fa-fast-forward"></i></span></a></td></tr>`;
+                }else{
+                    queue += `<tr><td><a href="#"><span class="downloader mouse" data-source="jdownloader" data-action="start" data-target="main"><i class="fa fa-play"></i></span></a></td></tr>`;
+                }
+                if(array.content.$status[1]) {
+                    queue += `<tr><td><a href="#"><span class="downloader mouse" data-source="jdownloader" data-action="update" data-target="main"><i class="fa fa-globe"></i></span></a></td></tr>`;
+                }
+            }
+            $.each(array.content.queueItems, function(i,v) {
+                count = count + 1;
+                if(v.speed == null){
+                    v.speed = 'Stopped';
+                }
+                if(v.eta == null){
+                    if(v.percentage == '100'){
+                        v.speed = 'Completed';
+                        v.eta = '--';
+                    }else{
+                        v.eta = '--';
+                    }
+                }
+                if(v.enabled == null){
+                    v.speed = 'Disabled';
+                }
+                queue += `
+                <tr>
+                    <td class="max-texts">`+v.name+`</td>
+                    <td>`+v.speed+`</td>
+                    <td class="hidden-xs" alt="`+v.done+`">`+v.size+`</td>
+                    <td class="hidden-xs">`+v.eta+`</td>
+                    <td class="text-right">
+                        <div class="progress progress-lg m-b-0">
+                            <div class="progress-bar progress-bar-info" style="width: `+v.percentage+`%;" role="progressbar">`+v.percentage+`%</div>
+                        </div>
+                    </td>
+                </tr>
+                `;
+            });
+            $.each(array.content.grabberItems, function(i,v) {
+                count = count + 1;
+                queue += `
+                <tr>
+                    <td class="max-texts">`+v.name+`</td>
+                    <td>Online</td>
+                    <td class="hidden-xs"> -- </td>
+                    <td class="hidden-xs"> -- </td>
+                    <td class="text-right">
+                        <div class="progress progress-lg m-b-0">
+                            <div class="progress-bar progress-bar-info" style="width: 0%;" role="progressbar">0%</div>
+                        </div>
+                    </td>
+                </tr>
+                `;
+            });
+            $.each(array.content.encryptedItems, function(i,v) {
+                count = count + 1;
+                queue += `
+                <tr>
+                    <td class="max-texts">`+v.name+`</td>
+                    <td>Encrypted</td>
+                    <td class="hidden-xs"> -- </td>
+                    <td class="hidden-xs"> -- </td>
+                    <td class="text-right">
+                        <div class="progress progress-lg m-b-0">
+                            <div class="progress-bar progress-bar-info" style="width: 0%;" role="progressbar">0%</div>
+                        </div>
+                    </td>
+                </tr>
+                `;
+            });
+            $.each(array.content.offlineItems, function(i,v) {
+                count = count + 1;
+                queue += `
+                <tr>
+                    <td class="max-texts">`+v.name+`</td>
+                    <td>Offline</td>
+                    <td class="hidden-xs"> -- </td>
+                    <td class="hidden-xs"> -- </td>
+                    <td class="text-right">
+                        <div class="progress progress-lg m-b-0">
+                            <div class="progress-bar progress-bar-info" style="width: 0%;" role="progressbar">0%</div>
+                        </div>
+                    </td>
+                </tr>
+                `;
+            });
+            break;
 		case 'sabnzbd':
+            if(array.content === false){
+                queue = '<tr><td class="max-texts" lang="en">Connection Error to ' + source + '</td></tr>';
+                break;
+            }
             if(array.content.queueItems.queue.paused){
                 var state = `<a href="#"><span class="downloader mouse" data-source="sabnzbd" data-action="resume" data-target="main"><i class="fa fa-play"></i></span></a>`;
                 var active = 'grayscale';
@@ -4785,6 +5088,10 @@ function buildDownloaderItem(array, source, type='none'){
             });
 			break;
 		case 'nzbget':
+            if(array.content === false){
+                queue = '<tr><td class="max-texts" lang="en">Connection Error to ' + source + '</td></tr>';
+                break;
+            }
             if(array.content.queueItems.result.length == 0){
                 queue = '<tr><td class="max-texts" lang="en">Nothing in queue</td></tr>';
             }
@@ -4832,6 +5139,10 @@ function buildDownloaderItem(array, source, type='none'){
             });
 			break;
 		case 'transmission':
+            if(array.content === false){
+                queue = '<tr><td class="max-texts" lang="en">Connection Error to ' + source + '</td></tr>';
+                break;
+            }
             if(array.content.queueItems.arguments.torrents == 0){
                 queue = '<tr><td class="max-texts" lang="en">Nothing in queue</td></tr>';
             }
@@ -4891,6 +5202,10 @@ function buildDownloaderItem(array, source, type='none'){
             });
 			break;
         case 'rTorrent':
+            if(array.content === false){
+                queue = '<tr><td class="max-texts" lang="en">Connection Error to ' + source + '</td></tr>';
+                break;
+            }
             if(array.content.queueItems == 0){
                 queue = '<tr><td class="max-texts" lang="en">Nothing in queue</td></tr>';
             }
@@ -4924,6 +5239,10 @@ function buildDownloaderItem(array, source, type='none'){
             });
             break;
 		case 'qBittorrent':
+		    if(array.content === false){
+                queue = '<tr><td class="max-texts" lang="en">Connection Error to ' + source + '</td></tr>';
+                break;
+            }
             if(array.content.queueItems.arguments.torrents == 0){
                 queue = '<tr><td class="max-texts" lang="en">Nothing in queue</td></tr>';
             }
@@ -4966,7 +5285,7 @@ function buildDownloaderItem(array, source, type='none'){
                 queue += `
                 <tr>
                     <td class="max-texts">`+v.name+`</td>
-                    <td class="hidden-xs">`+status+`</td>
+                    <td class="hidden-xs qbit-`+status+`">`+status+`</td>
                     <td class="hidden-xs">`+v.save_path+`</td>
                     <td class="hidden-xs">`+size+`</td>
                     <td class="text-right">
@@ -4979,6 +5298,10 @@ function buildDownloaderItem(array, source, type='none'){
             });
 			break;
 		case 'deluge':
+            if(array.content === false){
+                queue = '<tr><td class="max-texts" lang="en">Connection Error to ' + source + '</td></tr>';
+                break;
+            }
             if(array.content.queueItems.length == 0){
                 queue = '<tr><td class="max-texts" lang="en">Nothing in queue</td></tr>';
             }
@@ -5021,6 +5344,11 @@ function buildDownloader(source){
     var queueButton = 'QUEUE';
     var historyButton = 'HISTORY';
     switch (source) {
+        case 'jdownloader':
+            var queue = true;
+            var history = false;
+            queueButton = 'REFRESH';
+            break;
         case 'sabnzbd':
         case 'nzbget':
             var queue = true;
@@ -5087,6 +5415,7 @@ function buildDownloader(source){
 			`+menu+`
 			<hr class="hidden-xs"><div class="clearfix"></div>
 		</div>
+		<div class="clearfix"></div>
 		`;
 	}else{
 		var header = `
@@ -5115,6 +5444,11 @@ function buildDownloaderCombined(source){
     var queueButton = 'QUEUE';
     var historyButton = 'HISTORY';
     switch (source) {
+        case 'jdownloader':
+            var queue = true;
+            var history = false;
+            queueButton = 'REFRESH';
+            break;
         case 'sabnzbd':
         case 'nzbget':
             var queue = true;
@@ -5180,6 +5514,7 @@ function buildDownloaderCombined(source){
                 `+mainMenu+`
                 <div class="clearfix"></div>
             </div>
+            <div class="clearfix"></div>
             `;
         }else{
             var header = `
@@ -5216,7 +5551,7 @@ function buildMetadata(array, source){
 		var hasGenre = (typeof v.metadata.genres !== 'string') ? true : false;
 		if(hasActor){
 			$.each(v.metadata.actors, function(i,v) {
-				actors += '<div class="item lazyload recent-poster" data-src="'+(v.thumb.replace("http://", "https://"))+'" alt="'+v.name+'" ><span class="elip recent-title p-5">'+v.name+'<br><small class="font-light">'+v.role+'</small></span></div>';
+				actors += '<div class="item lazyload recent-poster" data-src="'+(v.thumb.replace("http://", "https://"))+'" alt="'+v.name+'" ><span class="elip recent-title p-a-5">'+v.name+'<br><small class="font-light">'+v.role+'</small></span></div>';
 			});
 		}
 		if(hasGenre){
@@ -5315,10 +5650,257 @@ function buildCalendarMetadata(array){
 		`;
 	return metadata;
 }
+function buildHealthChecks(array){
+    if(array === false){ return ''; }
+    var checks = (typeof array.content.checks !== 'undefined') ? array.content.checks.length : false;
+    return (checks) ? `
+	<div id="allHealthChecks">
+		<div class="el-element-overlay row">
+		    <div class="col-md-12">
+		        <h4 class="pull-left"><span lang="en">Health Checks</span> : </h4><h4 class="pull-left">&nbsp;<span class="label label-info m-l-20 checkbox-circle good-health-checks mouse">`+checks+`</span></h4>
+		        <hr class="hidden-xs">
+		    </div>
+			<div class="clearfix"></div>
+		    <!-- .cards -->
+		    <div class="healthCheckCards">
+			    `+buildHealthChecksItem(array.content.checks)+`
+			</div>
+		    <!-- /.cards-->
+		</div>
+	</div>
+	<div class="clearfix"></div>
+	` : '';
+}
+function buildUnifi(array){
+    if(array === false){ return ''; }
+    var items = (typeof array.content.unifi.data !== 'undefined') ? array.content.unifi.data.length : false;
+    return (items) ? `
+	<div id="allUnifi">
+		<div class="row">
+		    <div class="col-md-12">
+		        <h4 class="pull-left"><span lang="en">Unifi</span> : </h4><h4 class="pull-left">&nbsp;</h4>
+		        <hr class="hidden-xs">
+		    </div>
+			<div class="clearfix"></div>
+		    <!-- .cards -->
+		    <div class="unifiCards">
+		        `+buildUnifiItem(array.content.unifi.data)+`
+			</div>
+		    <!-- /.cards-->
+		</div>
+	</div>
+	<div class="clearfix"></div>
+	` : '';
+}
+function buildUnifiItem(array){
+    var items = '';
+    $.each(array, function(i,v) {
+        console.log(v);
+        var name = (typeof v.subsystem !== 'undefined') ? v.subsystem : '';
+        var stats = {};
+        var panelColor = '';
+        switch (name) {
+            case 'wlan':
+                panelColor = 'info';
+                stats['clients'] = v.num_user;
+                stats['tx'] = v['tx_bytes-r'];
+                stats['rx'] = v['rx_bytes-r'];
+                break;
+            case 'wan':
+                panelColor = 'success';
+                stats['IP'] = v.wan_ip;
+                stats['tx'] = v['tx_bytes-r'];
+                stats['rx'] = v['rx_bytes-r'];
+                break;
+            case 'lan':
+                panelColor = 'primary';
+                stats['clients'] = v.num_user;
+                stats['tx'] = v['tx_bytes-r'];
+                stats['rx'] = v['rx_bytes-r'];
+                break;
+            case 'www':
+                panelColor = 'warning';
+                stats['drops'] = v.drops;
+                stats['latency'] = v.latency;
+                stats['uptime'] = v.uptime;
+                stats['tx'] = v['tx_bytes-r'];
+                stats['rx'] = v['rx_bytes-r'];
+                break;
+            case 'vpn':
+                panelColor = 'inverse';
+                stats['clients'] = v.remote_user_num_active;
+                stats['tx'] = v.remote_user_tx_bytes;
+                stats['rx'] = v.remote_user_rx_bytes;
+                break;
+            default:
+        }
+        var statItems = '';
+       console.log(statItems);
+        $.each(stats, function(istat,vstat) {
+            statItems += `
+                <div class="stat-item">
+                    <h6 class="text-uppercase">`+istat+`</h6>
+                    <b>`+vstat+`</b>
+                </div>
+                `;
+        });
+        items += `
+            <!--<div class="col-lg-4 col-md-6">
+                <div class="white-box">
+                    <h3 class="box-title">`+name+`</h3>
+                    <div class="stats-row">
+                        `+statItems+`
+                    </div>
+                </div>
+            </div>-->
+            <div class="col-lg-4 col-md-6 col-center">
+                <div class="panel panel-`+panelColor+`">
+                    <div class="panel-heading"> <span class="text-uppercase">`+name+`</span>
+                        <div class="pull-right"><a href="#" data-perform="panel-collapse"><i class="ti-minus"></i></a> <a href="#" data-perform="panel-dismiss"><i class="ti-close"></i></a> </div>
+                    </div>
+                    <div class="panel-wrapper collapse in" aria-expanded="true">
+                        <div class="panel-body">
+                           `+statItems+`
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    return items;
+}
+function healthCheckIcon(tags){
+    var allTags = tags.split(' ');
+    var useIcon = '';
+    $.each(allTags, function(i,v) {
+        //check for image
+        var file =  v.substring(v.lastIndexOf('.')+1, v.length).toLowerCase() || v.toLowerCase();
+        switch (file) {
+            case 'png':
+            case 'jpg':
+            case 'jpeg':
+            case 'gif':
+                useIcon = '<img class="lazyload loginTitle" data-src="'+v+'">&nbsp;';
+                break;
+            default:
+        }
+    });
+    return useIcon;
+}
+function buildHealthChecksItem(array){
+    var checks = '';
+    $.each(array, function(i,v) {
+        var hasIcon = healthCheckIcon(v.tags);
+        v.name = (v.name) ? v.name : 'New Item';
+        switch(v.status){
+            case 'up':
+                var statusColor = 'success';
+                var statusIcon = 'ti-link text-success';
+                var nextPing = moment.utc(v.next_ping, "YYYY-MM-DD hh:mm[Z]").local().fromNow();
+                var lastPing = moment.utc(v.last_ping, "YYYY-MM-DD hh:mm[Z]").local().fromNow();
+                break;
+            case 'down':
+                var statusColor = 'danger animated-3 loop-animation flash';
+                var statusIcon = 'ti-unlink text-danger';
+                var nextPing = 'Service Down';
+                var lastPing = moment.utc(v.last_ping, "YYYY-MM-DD hh:mm[Z]").local().fromNow();
+                break;
+            case 'new':
+                var statusColor = 'info';
+                var statusIcon = 'ti-time text-info';
+                var nextPing = 'Waiting...';
+                var lastPing = 'n/a';
+                break;
+            case 'grace':
+                var statusColor = 'warning';
+                var statusIcon = 'ti-alert text-warning';
+                var nextPing = moment.utc(v.next_ping, "YYYY-MM-DD hh:mm[Z]").local().fromNow();
+                var lastPing = 'Missed';
+                break;
+            case 'paused':
+                var statusColor = 'primary';
+                var statusIcon = 'ti-control-pause text-primary';
+                var nextPing = 'Paused';
+                var lastPing = moment.utc(v.last_ping, "YYYY-MM-DD hh:mm[Z]").local().fromNow();
+                break;
+            default:
+                var statusColor = 'warning';
+                var statusIcon = 'ti-timer text-warning';
+                var nextPing = 'Waiting...';
+                var lastPing = 'n/a';
+        }
+        checks += `
+            <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 col-xs-12">
+                <div class="card bg-inverse text-white mb-3 showMoreHealth mouse" data-id="`+i+`">
+                    <div class="card-body bg-org-alt pt-1 pb-1">
+                        <div class="d-flex no-block align-items-center">
+                            <div class="left-health bg-`+statusColor+`"></div>
+                            <div class="ml-1 w-100">
+                                <i class="`+statusIcon+` font-20 pull-right mt-3 mb-2"></i>
+                                <h3 class="d-flex no-block align-items-center mt-2 mb-2">`+hasIcon+v.name+`</h3>
+                                <div class="clearfix"></div>
+                                <div class="d-none showMoreHealthDiv-`+i+`"><h5>Last: `+lastPing+`</h5><h5>Next: `+nextPing+`</h5></div>
+                                <div class="clearfix"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `
+    });
+    return checks;
+}
+function homepageHealthChecks(tags, timeout){
+    var tags = (typeof tags !== 'undefined') ? tags : activeInfo.settings.homepage.options.healthChecksTags;
+    var timeout = (typeof timeout !== 'undefined') ? timeout : activeInfo.settings.homepage.refresh.homepageHealthChecksRefresh;
+    organizrAPI('POST','api/?v1/homepage/connect',{action:'getHealthChecks',tags:tags}).success(function(data) {
+        try {
+            var response = JSON.parse(data);
+        }catch(e) {
+            console.log(e + ' error: ' + data);
+            orgErrorAlert('<h4>' + e + '</h4>' + formatDebug(data));
+            return false;
+        }
+        document.getElementById('homepageOrderhealthchecks').innerHTML = '';
+        if(response.data !== null){
+            $('#homepageOrderhealthchecks').html(buildHealthChecks(response.data));
+        }
+    }).fail(function(xhr) {
+        console.error("Organizr Function: API Connection Failed");
+    });
+    var timeoutTitle = 'HealthChecks-Homepage';
+    if(typeof timeouts[timeoutTitle] !== 'undefined'){ clearTimeout(timeouts[timeoutTitle]); }
+    timeouts[timeoutTitle] = setTimeout(function(){ homepageHealthChecks(tags,timeout); }, timeout);
+}
+function homepageUnifi(timeout){
+    var timeout = (typeof timeout !== 'undefined') ? timeout : activeInfo.settings.homepage.refresh.homepageUnifiRefresh;
+    organizrAPI('POST','api/?v1/homepage/connect',{action:'getUnifi'}).success(function(data) {
+        try {
+            var response = JSON.parse(data);
+        }catch(e) {
+            console.log(e + ' error: ' + data);
+            orgErrorAlert('<h4>' + e + '</h4>' + formatDebug(data));
+            return false;
+        }
+        document.getElementById('homepageOrderunifi').innerHTML = '';
+        console.log(response.data);
+        if(response.data !== null){
+            $('#homepageOrderunifi').html(buildUnifi(response.data));
+        }
+    }).fail(function(xhr) {
+        console.error("Organizr Function: API Connection Failed");
+    });
+    var timeoutTitle = 'Unifi-Homepage';
+    if(typeof timeouts[timeoutTitle] !== 'undefined'){ clearTimeout(timeouts[timeoutTitle]); }
+    timeouts[timeoutTitle] = setTimeout(function(){ homepageUnifi(timeout); }, timeout);
+}
 function homepageDownloader(type, timeout){
 	var timeout = (typeof timeout !== 'undefined') ? timeout : activeInfo.settings.homepage.refresh.homepageDownloadRefresh;
 	//if(isHidden()){ return; }
 	switch (type) {
+        case 'jdownloader':
+            var action = 'getJdownloader';
+            break;
 		case 'sabnzbd':
 			var action = 'getSabnzbd';
 			break;
@@ -5457,6 +6039,20 @@ function homepagePlaylist(type, timeout=30000){
 		console.error("Organizr Function: API Connection Failed");
 	});
 }
+function defaultOmbiFilter(){
+    var defaultFilter = {
+        "request-filter-approved" : activeInfo.settings.homepage.ombi.ombiDefaultFilterApproved,
+        "request-filter-unapproved" : activeInfo.settings.homepage.ombi.ombiDefaultFilterUnapproved,
+        "request-filter-available" : activeInfo.settings.homepage.ombi.ombiDefaultFilterAvailable,
+        "request-filter-unavailable" : activeInfo.settings.homepage.ombi.ombiDefaultFilterUnavailable,
+        "request-filter-denied" : activeInfo.settings.homepage.ombi.ombiDefaultFilterDenied
+    };
+    $.each(defaultFilter, function(i,v) {
+        if(v == false){
+            $('#'+i).click();
+        }
+    });
+}
 function homepageRequests(timeout){
 	var timeout = (typeof timeout !== 'undefined') ? timeout : activeInfo.settings.homepage.refresh.ombiRefresh;
 	organizrAPI('POST','api/?v1/homepage/connect',{action:'getRequests'}).success(function(data) {
@@ -5479,15 +6075,17 @@ function homepageRequests(timeout){
 			autoWidth:true,
 			items:4
     	})
+        // Default Ombi Filter
+        defaultOmbiFilter();
 	}).fail(function(xhr) {
 		console.error("Organizr Function: API Connection Failed");
 	});
 	if(typeof timeouts['ombi-Homepage'] !== 'undefined'){ clearTimeout(timeouts['ombi-Homepage']); }
 	timeouts['ombi-Homepage'] = setTimeout(function(){ homepageRequests(timeout); }, timeout);
 }
-function testAPIConnection(service){
+function testAPIConnection(service, data = ''){
     messageSingle('',' Testing now...',activeInfo.settings.notifications.position,'#FFF','info','10000');
-    organizrAPI('POST','api/?v1/test/api/connection',{action:service}).success(function(data) {
+    organizrAPI('POST','api/?v1/test/api/connection',{action:service, data:data}).success(function(data) {
         try {
             var response = JSON.parse(data);
         }catch(e) {
@@ -5505,6 +6103,59 @@ function testAPIConnection(service){
         console.error("Organizr Function: API Connection Failed");
         message('',' Organizr Error',activeInfo.settings.notifications.position,'#FFF','error','10000');
     });
+}
+function getUnifiSite(service, data = ''){
+    messageSingle('',' Grabbing now...',activeInfo.settings.notifications.position,'#FFF','info','10000');
+    organizrAPI('POST','api/?v1/test/api/connection',{action:service, data:data}).success(function(data) {
+        try {
+            var response = JSON.parse(data);
+        }catch(e) {
+            console.log(e + ' error: ' + data);
+            orgErrorAlert('<h4>' + e + '</h4>' + formatDebug(data));
+            return false;
+        }
+        if(response.data !== false){
+            var sites = '';
+            if(response.data.data){
+                $.each(response.data.data, function(i,v) {
+                    sites += '<div class="form-group row"><div class="col-sm-12"><h4 class="mouse" onclick="unifiSiteApply(\''+v.name+'\')">'+v.desc+'</h4></div></div>';
+                });
+            }else{
+                console.log('no');
+            }
+            var div = `
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card m-b-0">
+                            <div class="form-horizontal">
+                                <div class="card-body">
+                                    <h4 class="card-title" lang="en">Choose Unifi Site</h4>
+                                    `+sites+`
+                                </div>				
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            swal({
+                content: createElementFromHTML(div),
+                buttons: false,
+                className: 'bg-org'
+            })
+        }else{
+            messageSingle('API Connection Failed',response.data,activeInfo.settings.notifications.position,'#FFF','error','10000');
+        }
+        console.log(response);
+    }).fail(function(xhr) {
+        console.error("Organizr Function: API Connection Failed");
+        message('',' Organizr Error',activeInfo.settings.notifications.position,'#FFF','error','10000');
+    });
+}
+function unifiSiteApply(name){
+    $('#homepage-Unifi-form [name=unifiSiteName]').val(name);
+    $('#homepage-Unifi-form [name=unifiSiteName]').change();
+    swal.close();
+    messageSingle('', ' Grabbed Site - Please Save Now',activeInfo.settings.notifications.position,'#FFF','success','10000');
 }
 function homepageCalendar(timeout){
 	var timeout = (typeof timeout !== 'undefined') ? timeout : activeInfo.settings.homepage.refresh.calendarRefresh;
@@ -5552,6 +6203,13 @@ function getPlexHeaders(){
         'X-Plex-Product': activeInfo.appearance.title,
         'X-Plex-Version': '2.0',
         'X-Plex-Client-Identifier': activeInfo.settings.misc.uuid,
+        'X-Plex-Model': 'Plex OAuth',
+        'X-Plex-Platform': activeInfo.osName,
+        'X-Plex-Platform-Version': activeInfo.osVersion,
+        'X-Plex-Device': activeInfo.browserName,
+        'X-Plex-Device-Name': activeInfo.browserVersion,
+        'X-Plex-Device-Screen-Resolution': window.screen.width + 'x' + window.screen.height,
+        'X-Plex-Language': 'en'
     };
 }
 var plex_oauth_window = null;
@@ -5629,7 +6287,20 @@ function PlexOAuth(success, error, pre) {
         var x_plex_headers = getPlexHeaders();
         const pin = data.pin;
         const code = data.code;
-        plex_oauth_window.location = 'https://app.plex.tv/auth/#!?clientID=' + x_plex_headers['X-Plex-Client-Identifier'] + '&code=' + code;
+        var oauth_params = {
+            'clientID': x_plex_headers['X-Plex-Client-Identifier'],
+            'context[device][product]': x_plex_headers['X-Plex-Product'],
+            'context[device][version]': x_plex_headers['X-Plex-Version'],
+            'context[device][platform]': x_plex_headers['X-Plex-Platform'],
+            'context[device][platformVersion]': x_plex_headers['X-Plex-Platform-Version'],
+            'context[device][device]': x_plex_headers['X-Plex-Device'],
+            'context[device][deviceName]': x_plex_headers['X-Plex-Device-Name'],
+            'context[device][model]': x_plex_headers['X-Plex-Model'],
+            'context[device][screenResolution]': x_plex_headers['X-Plex-Device-Screen-Resolution'],
+            'context[device][layout]': 'desktop',
+            'code': code
+        };
+        plex_oauth_window.location = 'https://app.plex.tv/auth/#!?' + encodeData(oauth_params);
         polling = pin;
         (function poll() {
             $.ajax({
@@ -5666,6 +6337,11 @@ function PlexOAuth(success, error, pre) {
             error()
         }
     });
+}
+function encodeData(data) {
+    return Object.keys(data).map(function(key) {
+        return [key, data[key]].map(encodeURIComponent).join("=");
+    }).join("&");
 }
 function oAuthSuccess(type,token){
     switch(type) {
@@ -6555,8 +7231,10 @@ function checkIfTabNameExists(tabName){
     }
 }
 function orgErrorAlert(error){
-    $('#main-org-error-container').addClass('show');
-    $('#main-org-error').html(error);
+    if(activeInfo.settings.misc.debugErrors) {
+        $('#main-org-error-container').addClass('show');
+        $('#main-org-error').html(error);
+    }
 }
 function closeOrgError(){
     $('#main-org-error-container').removeClass('show');
@@ -6572,6 +7250,102 @@ function isJSON(data) {
     } catch (e) {
         return false;
     }
+}
+function createElementFromHTML(htmlString) {
+    var div = document.createElement('div');
+    div.innerHTML = htmlString.trim();
+    return div.firstChild;
+}
+function showLDAPLoginTest(){
+    var div = `
+        <div class="row">
+            <div class="col-12">
+                <div class="card m-b-0">
+                    <div class="form-horizontal">
+                        <div class="card-body">
+                            <h4 class="card-title" lang="en">LDAP User Info</h4>
+                            <div class="form-group row">
+                                <div class="col-sm-12">
+                                    <input type="text" class="form-control" id="ldapUsernameTest" placeholder="Username">
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <div class="col-sm-12">
+                                    <input type="password" class="form-control" id="ldapPasswordTest" placeholder="Password">
+                                </div>
+                            </div>
+                            <div class="form-group mb-0 p-r-10 text-right">
+                                <button type="submit" onclick="testAPIConnection('ldap_login', {'username':$('#ldapUsernameTest').val(),'password':$('#ldapPasswordTest').val()})" class="btn btn-info waves-effect waves-light">Test Login</button>
+                            </div>
+                        </div>				
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    swal({
+        content: createElementFromHTML(div),
+        buttons: false,
+        className: 'bg-org'
+    })
+}
+function oAuthLoginNeededCheck() {
+    if(OAuthLoginNeeded == false){
+        return false;
+    }else{
+        if(activeInfo.user.loggedin == true){
+            return false;
+        }
+    }
+    message('OAuth', ' Proceeding to login', activeInfo.settings.notifications.position, '#FFF', 'info', '10000');
+    organizrAPI('POST', 'api/?v1/login', '').success(function (data) {
+        var html = JSON.parse(data);
+        if (html.data == true) {
+            local('set', 'message', 'Welcome|Login Successful|success');
+            location.reload();
+        } else if (html.data == 'mismatch') {
+            $('div.login-box').unblock({});
+            message('Login Error', ' Wrong username/email/password combo', activeInfo.settings.notifications.position, '#FFF', 'warning', '10000');
+            console.error('Organizr Function: Login failed - wrong username/email/password');
+        } else if (html.data == 'lockout') {
+            $('div.login-box').block({
+                message: '<h5><i class="fa fa-close"></i> Locked Out!</h4>',
+                css: {
+                    color: '#fff',
+                    border: '1px solid #e91e63',
+                    backgroundColor: '#f44336'
+                }
+            });
+            message('Login Error', ' You have been Locked out', activeInfo.settings.notifications.position, '#FFF', 'error', '10000');
+            console.error('Organizr Function: Login failed - User has been locked out');
+            setTimeout(function () {
+                local('r', 'loggingIn');
+                location.reload()
+            }, 10000);
+        } else if (html.data == '2FA') {
+            $('div.login-box').unblock({});
+            $('#tfa-div').removeClass('hidden');
+            $('#loginform [name=tfaCode]').focus();
+        } else if (html.data == '2FA-incorrect') {
+            $('div.login-box').unblock({});
+            $('#tfa-div').removeClass('hidden');
+            $('#loginform [name=tfaCode]').focus();
+            message('Login Error', html.data, activeInfo.settings.notifications.position, '#FFF', 'warning', '10000');
+        } else {
+            $('div.login-box').unblock({});
+            message('Login Error', html.data, activeInfo.settings.notifications.position, '#FFF', 'warning', '10000');
+            console.error('Organizr Function: Login failed');
+        }
+        local('r', 'loggingIn');
+    }).fail(function (xhr) {
+        $('div.login-box').unblock({});
+        message('Login Error', 'API Connection Failed', activeInfo.settings.notifications.position, '#FFF', 'warning', '10000');
+        console.error("Organizr Function: API Connection Failed");
+        local('r', 'loggingIn');
+    });
+}
+function ipInfoSpan(ip){
+    return '<span class="ipInfo mouse">'+ip+'</span>';
 }
 function launch(){
 	organizrConnect('api/?v1/launch_organizr').success(function (data) {
@@ -6642,10 +7416,25 @@ function launch(){
                     getPingList(json);
                 }
                 loadCustomJava(json.appearance);
+                if(getCookie('lockout')){
+                    $('.show-login').click();
+                    setTimeout(function(){
+                        $('div.login-box').block({
+                            message: '<h5><i class="fa fa-close"></i> Locked Out!</h4>',
+                            css: {
+                                color: '#fff',
+                                border: '1px solid #e91e63',
+                                backgroundColor: '#f44336'
+                            }
+                        });
+                    }, 1000);
+                    setTimeout(function(){ location.reload() }, 60000);
+                }
 				break;
 			default:
 				console.error('Organizr Function: Action not set or defined');
 		}
 		console.log('Organizr DOM Fully loaded');
+        oAuthLoginNeededCheck();
 	});
 }

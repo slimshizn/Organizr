@@ -1,7 +1,7 @@
 <?php
 // ===================================
 // Organizr Version
-$GLOBALS['installedVersion'] = '2.0.49';
+$GLOBALS['installedVersion'] = '2.0.307';
 // ===================================
 // Quick php Version check
 $GLOBALS['minimumPHP'] = '7.1.3';
@@ -20,6 +20,8 @@ if ($GLOBALS['docker']) {
 }
 $GLOBALS['fileHash'] = (isset($GLOBALS['quickCommit'])) ? $GLOBALS['quickCommit'] : $GLOBALS['installedVersion'];
 $GLOBALS['quickConfig'] = (file_exists($GLOBALS['userConfigPath'])) ? loadConfigOnce($GLOBALS['userConfigPath']) : null;
+$GLOBALS['organizrIndexTitle'] = (isset($GLOBALS['quickConfig']['title'])) ? $GLOBALS['quickConfig']['title'] : 'Organizr v2';
+$GLOBALS['organizrIndexDescription'] = (isset($GLOBALS['quickConfig']['description'])) ? $GLOBALS['quickConfig']['description'] : 'Organizr v2';
 // Quick function for plugins
 function pluginFiles($type)
 {
@@ -125,4 +127,22 @@ function matchBrackets($text, $brackets = 's')
 	}
 	preg_match($pattern, $text, $match);
 	return $match[1];
+}
+
+function googleTracking()
+{
+	if (isset($GLOBALS['quickConfig']['gaTrackingID'])) {
+		if ($GLOBALS['quickConfig']['gaTrackingID'] !== '') {
+			return '
+				<script async src="https://www.googletagmanager.com/gtag/js?id=' . $GLOBALS['quickConfig']['gaTrackingID'] . '"></script>
+    			<script>
+				    window.dataLayer = window.dataLayer || [];
+				    function gtag(){dataLayer.push(arguments);}
+				    gtag("js", new Date());
+				    gtag("config","' . $GLOBALS['quickConfig']['gaTrackingID'] . '");
+    			</script>
+			';
+		}
+	}
+	return null;
 }
